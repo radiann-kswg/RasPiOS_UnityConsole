@@ -1,0 +1,74 @@
+#!/bin/bash
+# USBメモリ(ゲームカセット)挿入時の自動インストール
+# udev → unitycon-usb-install@.service 経由で呼ばれる。
+# 使い方: ucon-usb-install <カーネルデバイス名 例:sda1>
+set -u
+source /usr/lib/unityconsole/ucon-lib.sh
+
+DEVNAME="${1:-}"
+[ -n "${DEVNAME}" ] || exit 1
+DEV="/dev/${DEVNAME}"
+[ -b "${DEV}" ] || exit 0
+
+MNT="$(mktemp -d /run/unitycon-usb.XXXXXX)"
+cleanup() {
+    umount "${MNT}" 2>/dev/null || true
+    rmdir "${MNT}" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+if ! mount -o ro "${DEV}" "${MNT}" 2>/dev/null; then
+    exit 0
+fi
+
+# 探索対象: /UnityGames/ 優先、無ければUSBルート直下
+SEARCH_DIR="${MNT}/UnityGames"
+[ -d "${SEARCH_DIR}" ] || SEARCH_DIR="${MNT}"
+
+installed=0
+skipped=0
+failed=0
+nospace=0
+
+install_one() {
+    local kind="$1" path="$2" name="$3" rc
+    if [ -d "${APPS_DIR}/${name}" ]; then
+        skipped=$((skipped + 1))
+        return
+    fi
+    if [ "${kind}" = zip ]; then
+        ucon_install_zip "${path}"
+    else
+        ucon_install_dir "${path}" "${name}"
+    fi
+    rc=$?
+    case "${rc}" in
+        0) installed=$((installed + 1)) ;;
+        2) nospace=$((nospace + 1)) ;;
+        *) failed=$((failed + 1)) ;;
+    esac
+}
+
+# zip形式
+while IFS= read -r -d '' zip; do
+    install_one zip "${zip}" "$(basename "${zip%.*}")"
+done < <(find "${SEARCH_DIR}" -maxdepth 1 -type f \( -name '*.zip' -o -name '*.ZIP' \) -print0 2>/dev/null)
+
+# ディレクトリ形式（*.x86_64 を含むもののみ）
+while IFS= read -r -d '' dir; do
+    if [ -n "$(ucon_find_exe "${dir}")" ]; then
+        install_one dir "${dir}" "$(basename "${dir}")"
+    fi
+done < <(find "${SEARCH_DIR}" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+
+msg="USBカセット: 追加${installed}件"
+[ "${skipped}" -gt 0 ] && msg="${msg} / 導入済${skipped}件"
+[ "${failed}" -gt 0 ] && msg="${msg} / 失敗${failed}件"
+if [ "${nospace}" -gt 0 ]; then
+    msg="${msg} / 容量不足${nospace}件 — バックアップ機能でSDのアプリをUSBへ退避できます"
+fi
+if [ "$((installed + skipped + failed + nospace))" -gt 0 ]; then
+    ucon_notify "${msg}"
+fi
+
+exit 0

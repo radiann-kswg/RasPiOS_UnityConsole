@@ -1,0 +1,2 @@
+# ランチャー(playerユーザー)からバックアップ(要mount権限)を実行可能にする
+player ALL=(root) NOPASSWD: /usr/local/bin/ucon-backup

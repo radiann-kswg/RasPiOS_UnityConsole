@@ -1,0 +1,7 @@
+pi-gen/
+work/
+deploy/
+*.img
+*.img.xz
+__pycache__/
+*.pyc

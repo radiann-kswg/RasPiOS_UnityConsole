@@ -1,0 +1,3 @@
+# UnityConsole: USBメモリ(ゲームカセット)挿入で自動インストールを起動
+ACTION=="add", SUBSYSTEM=="block", KERNEL=="sd*[0-9]", ENV{ID_FS_USAGE}=="filesystem", TAG+="systemd", ENV{SYSTEMD_WANTS}+="unitycon-usb-install@%k.service"
+ACTION=="add", SUBSYSTEM=="block", KERNEL=="sd[a-z]", ENV{ID_FS_USAGE}=="filesystem", TAG+="systemd", ENV{SYSTEMD_WANTS}+="unitycon-usb-install@%k.service"

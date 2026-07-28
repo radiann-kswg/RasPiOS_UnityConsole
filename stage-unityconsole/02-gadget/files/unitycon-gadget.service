@@ -1,0 +1,12 @@
+[Unit]
+Description=UnityConsole USB gadget (CDC-ACM serial)
+After=local-fs.target sys-kernel-config.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/unityconsole/unitycon-gadget.sh start
+ExecStop=/usr/lib/unityconsole/unitycon-gadget.sh stop
+
+[Install]
+WantedBy=multi-user.target

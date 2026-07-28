@@ -1,0 +1,25 @@
+#!/bin/bash
+# Unityアプリを box64 経由で実行する
+# 使い方: ucon-run-app <アプリディレクトリ> [Unity起動引数...]
+set -u
+
+APP_DIR="${1:-}"
+if [ -z "${APP_DIR}" ] || [ ! -d "${APP_DIR}" ]; then
+    echo "usage: ucon-run-app <app-dir> [args...]" >&2
+    exit 1
+fi
+shift
+
+EXE="$(find "${APP_DIR}" -maxdepth 1 -name '*.x86_64' -type f | head -n 1)"
+if [ -z "${EXE}" ]; then
+    echo "実行ファイル(*.x86_64)が見つかりません: ${APP_DIR}" >&2
+    exit 1
+fi
+chmod +x "${EXE}" 2>/dev/null || true
+
+cd "${APP_DIR}"
+
+# box64 動作設定（必要に応じて調整）
+export BOX64_LOG=0
+
+exec box64 "${EXE}" "$@"

@@ -1,0 +1,5 @@
+#!/bin/sh
+# UnityConsole Xセッション: 省電力無効化してランチャーを起動
+xset s off
+xset -dpms
+exec /usr/bin/python3 /usr/lib/unityconsole/ucon-launcher.py

@@ -1,0 +1,25 @@
+# pi-gen ビルド設定 — RasPiOS_UnityConsole
+# build-image.sh によって pi-gen/config へコピーされ、build.sh から source される
+
+IMG_NAME='RasPiOS-UnityConsole'
+PI_GEN_RELEASE='RasPiOS UnityConsole'
+RELEASE='trixie'
+
+TARGET_HOSTNAME='unitycon'
+FIRST_USER_NAME='player'
+FIRST_USER_PASS='player'           # 運用前に必ず変更すること
+DISABLE_FIRST_BOOT_USER_RENAME=1   # アプライアンス用途のため初回ユーザー設定ウィザードを無効化
+ENABLE_SSH=1                       # メンテナンス用。不要なら0に
+
+LOCALE_DEFAULT='ja_JP.UTF-8'
+TIMEZONE_DEFAULT='Asia/Tokyo'
+KEYBOARD_KEYMAP='jp'
+KEYBOARD_LAYOUT='Japanese'
+WPA_COUNTRY='JP'
+
+ENABLE_CLOUD_INIT=0                # cloud-init/netplan は不要
+DEPLOY_COMPRESSION='xz'
+
+# stage2(Lite) までビルドし、独自ステージを追加
+# ※ 64bit(arm64)ブランチを使用（box64がARM64必須のため）
+STAGE_LIST='stage0 stage1 stage2 stage-unityconsole'

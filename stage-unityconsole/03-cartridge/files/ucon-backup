@@ -1,0 +1,71 @@
+#!/bin/bash
+# SDカード上のUnityアプリをUSBメモリへバックアップ（退避＝移動）する
+# 使い方: ucon-backup <アプリ名> [パーティションデバイス 例:/dev/sda1]
+# 終了コード: 0=成功 1=失敗 2=USB側容量不足 3=USB未検出
+set -u
+source /usr/lib/unityconsole/ucon-lib.sh
+
+NAME="${1:-}"
+DEV="${2:-}"
+
+if [ -z "${NAME}" ]; then
+    echo "usage: ucon-backup <app-name> [/dev/sdX1]" >&2
+    exit 1
+fi
+
+SRC="${APPS_DIR}/${NAME}"
+if [ ! -d "${SRC}" ]; then
+    echo "アプリが見つかりません: ${NAME}"
+    exit 1
+fi
+
+# デバイス未指定なら最初のUSBパーティションを自動選択
+if [ -z "${DEV}" ]; then
+    DEV="$(lsblk -rpno NAME,TYPE | awk '$2=="part" && $1 ~ /\/dev\/sd/ {print $1; exit}')"
+fi
+if [ -z "${DEV}" ] || [ ! -b "${DEV}" ]; then
+    echo "USBメモリが見つかりません"
+    exit 3
+fi
+
+MNT="$(mktemp -d /run/unitycon-bak.XXXXXX)"
+cleanup() {
+    umount "${MNT}" 2>/dev/null || true
+    rmdir "${MNT}" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+if ! mount -o rw "${DEV}" "${MNT}"; then
+    echo "USBメモリのマウントに失敗しました: ${DEV}"
+    exit 1
+fi
+
+need="$(ucon_size_kb "${SRC}")"
+avail="$(df --output=avail -k "${MNT}" | tail -n 1 | tr -d ' ')"
+if [ "${need}" -gt "${avail}" ]; then
+    echo "USB側の空き容量不足 (必要 $((need / 1024))MB / 空き $((avail / 1024))MB)"
+    exit 2
+fi
+
+# バックアップ先はカセットとして再認識できる /UnityGames/ に置く
+DEST_DIR="${MNT}/UnityGames"
+mkdir -p "${DEST_DIR}"
+rm -rf "${DEST_DIR}/${NAME}"
+if ! cp -a "${SRC}" "${DEST_DIR}/${NAME}"; then
+    rm -rf "${DEST_DIR}/${NAME}"
+    echo "コピーに失敗しました"
+    exit 1
+fi
+sync
+
+# コピー検証（サイズ比較）後にSD側を削除して容量を解放
+copied="$(ucon_size_kb "${DEST_DIR}/${NAME}")"
+if [ "${copied}" -lt "$((need * 9 / 10))" ]; then
+    echo "検証に失敗しました（コピーサイズ不一致）"
+    exit 1
+fi
+rm -rf "${SRC}"
+sync
+
+echo "${NAME} をUSBへ退避しました（USB挿入で再インストール可能）"
+exit 0

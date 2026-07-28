@@ -1,0 +1,13 @@
+[Unit]
+Description=UnityConsole serial app receiver (Type-C)
+After=unitycon-gadget.service
+Wants=unitycon-gadget.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/lib/unityconsole/unitycon-serial-receiver.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
