@@ -3,6 +3,7 @@
 # udev → unitycon-usb-install@.service 経由で呼ばれる。
 # 使い方: ucon-usb-install <カーネルデバイス名 例:sda1>
 set -u
+# shellcheck source=/dev/null
 source /usr/lib/unityconsole/ucon-lib.sh
 
 DEVNAME="${1:-}"
@@ -11,6 +12,8 @@ DEV="/dev/${DEVNAME}"
 [ -b "${DEV}" ] || exit 0
 
 MNT="$(mktemp -d /run/unitycon-usb.XXXXXX)"
+# trap から間接的に呼ばれるため shellcheck の到達性判定は無視する
+# shellcheck disable=SC2317
 cleanup() {
     umount "${MNT}" 2>/dev/null || true
     rmdir "${MNT}" 2>/dev/null || true

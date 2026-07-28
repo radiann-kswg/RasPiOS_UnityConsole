@@ -62,17 +62,33 @@ SDカードが一杯でインストールに失敗すると、ランチャーに
 
 ## ビルド方法
 
-Cowork（サンドボックス）では実ビルド不可。Linux環境（WSL2可）で:
+Cowork（サンドボックス）では実ビルド不可。Linux環境（WSL2可）で行います。
 
 ```bash
-# WSL2の場合: リポジトリをLinuxファイルシステムへコピー（NTFS/スペース入りパス不可）
-cp -r /mnt/d/Claude\ Coworks\ Projectfile/RaspberryPiOSEditor/RasPiOS_UnityConsole ~/build/
-cd ~/build/RasPiOS_UnityConsole
+# 1. リポジトリを Linux ファイルシステムへ複製
+#    Windows 側の開発ルートはパスに空白を含み、build-image.sh 冒頭のチェックで拒否される。
+#    性能面でも NTFS 越え (/mnt/c /mnt/d) のビルドは避けること。
+rsync -a --exclude 'pi-gen/' --exclude 'work/' --exclude 'deploy/' \
+  "/mnt/d/Claude Coworks Projectfile/RaspberryPiOSEditor/RasPiOS_UnityConsole/" \
+  ~/workspaces/RasPiOS_UnityConsole/
+cd ~/workspaces/RasPiOS_UnityConsole
 
+# 2. ビルド
 ./build-image.sh docker   # Docker Desktop (WSL2バックエンド) 推奨
 # または
 ./build-image.sh native   # Debian/Ubuntu実機 (要 sudo・依存パッケージ)
 ```
+
+- Docker モードでも**ホストに `qemu-user-binfmt` が必要**です。`pi-gen/build-docker.sh` が
+  コンテナ起動**前**に `which qemu-arm` を確認し、無ければ即終了します。
+- 本リポジトリは **arm64 ブランチ**（Debian 公式アーカイブ）を使うため、armhf 側で必要な
+  Raspbian 署名鍵の SHA-1 回避（`SEQUOIA_CRYPTO_POLICY`）は**不要**です。
+- 環境準備は `WSLSettings` リポジトリの `scripts/setup-pigen.sh` が一括で行います。
+  検証の詳細は同リポジトリの `docs/raspberrypi-pigen-build-verification.md` を参照。
+- 再実行前に `docker rm -f pigen_work`（残っていると "already exists" で止まります）。
+- 長時間かかるため、対話セッションから回すときは
+  `nohup setsid ./build-image.sh docker > build.log 2>&1 &` でバックグラウンド起動し
+  `tail -f` で追ってください。
 
 成果物: `pi-gen/deploy/*.img.xz` → Raspberry Pi Imager等でSDカードへ書き込み。
 
@@ -95,6 +111,7 @@ stage-unityconsole/
   02-gadget/               Type-C USBガジェット(ACM) + シリアル受信サービス
   03-cartridge/            USBカセット自動インストール + バックアップCLI
   04-launcher/             pygameランチャー (tty1キオスクXセッション)
+  05-purge-cloud-init/     cloud-init の除去（後述）
 tools/send-app.py          PC側転送ツール (pyserial)
 ```
 
@@ -103,6 +120,17 @@ tools/send-app.py          PC側転送ツール (pyserial)
 - アプリ格納: `/var/lib/unityconsole/apps/<アプリ名>/`
 - 通知ファイル: `/var/lib/unityconsole/notify.txt`（ランチャーが表示）
 - CLI: `ucon-install` / `ucon-backup` / `ucon-usb-install`
+
+## 補足: cloud-init について
+
+pi-gen の `stage2/04-cloud-init/00-packages` は `cloud-init` と `rpi-cloud-init-mods` を
+**無条件**に導入します。`config` の `ENABLE_CLOUD_INIT=0` が抑止するのは
+`stage2/04-cloud-init/01-run.sh` による `boot/firmware/{meta-data,user-data,network-config}`
+の配置だけで、パッケージ本体と systemd ユニットはイメージに残ります。
+
+本リポジトリでは `stage-unityconsole/05-purge-cloud-init/` を最後のサブステージとして置き、
+明示的に `apt-get purge` する構成にしています。先行サブステージで導入したパッケージが
+`autoremove` の巻き添えにならないよう、**このサブステージは必ず最後**に置いてください。
 
 ## 制約・既知の注意点
 

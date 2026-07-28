@@ -3,6 +3,7 @@
 # 使い方: ucon-backup <アプリ名> [パーティションデバイス 例:/dev/sda1]
 # 終了コード: 0=成功 1=失敗 2=USB側容量不足 3=USB未検出
 set -u
+# shellcheck source=/dev/null
 source /usr/lib/unityconsole/ucon-lib.sh
 
 NAME="${1:-}"
@@ -29,6 +30,8 @@ if [ -z "${DEV}" ] || [ ! -b "${DEV}" ]; then
 fi
 
 MNT="$(mktemp -d /run/unitycon-bak.XXXXXX)"
+# trap から間接的に呼ばれるため shellcheck の到達性判定は無視する
+# shellcheck disable=SC2317
 cleanup() {
     umount "${MNT}" 2>/dev/null || true
     rmdir "${MNT}" 2>/dev/null || true
@@ -50,9 +53,9 @@ fi
 # バックアップ先はカセットとして再認識できる /UnityGames/ に置く
 DEST_DIR="${MNT}/UnityGames"
 mkdir -p "${DEST_DIR}"
-rm -rf "${DEST_DIR}/${NAME}"
+rm -rf "${DEST_DIR:?}/${NAME:?}"
 if ! cp -a "${SRC}" "${DEST_DIR}/${NAME}"; then
-    rm -rf "${DEST_DIR}/${NAME}"
+    rm -rf "${DEST_DIR:?}/${NAME:?}"
     echo "コピーに失敗しました"
     exit 1
 fi

@@ -17,7 +17,7 @@ if [ -z "${EXE}" ]; then
 fi
 chmod +x "${EXE}" 2>/dev/null || true
 
-cd "${APP_DIR}"
+cd "${APP_DIR}" || { echo "アプリディレクトリへ移動できません: ${APP_DIR}" >&2; exit 1; }
 
 # box64 動作設定（必要に応じて調整）
 export BOX64_LOG=0

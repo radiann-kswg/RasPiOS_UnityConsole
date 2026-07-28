@@ -13,6 +13,8 @@ start() {
     fi
 
     # ガジェット非対応ポート/機種でも起動失敗にしない
+    # sysfs のUDC名は英数字のみのため ls で問題ない
+    # shellcheck disable=SC2012
     UDC_NAME="$(ls /sys/class/udc 2>/dev/null | head -n 1)"
     if [ -z "${UDC_NAME}" ]; then
         echo "unitycon-gadget: UDCが見つかりません（ガジェットモード非対応環境）。スキップします。"

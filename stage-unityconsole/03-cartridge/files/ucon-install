@@ -3,6 +3,7 @@
 # 使い方: ucon-install <zipファイル | アプリディレクトリ>
 # 終了コード: 0=成功 1=不正/失敗 2=容量不足
 set -u
+# shellcheck source=/dev/null
 source /usr/lib/unityconsole/ucon-lib.sh
 
 target="${1:-}"
