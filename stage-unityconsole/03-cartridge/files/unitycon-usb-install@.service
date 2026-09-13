@@ -5,4 +5,7 @@ After=dev-%i.device
 
 [Service]
 Type=oneshot
+# Type=oneshot の既定は infinity。読み出しが失敗し続けるUSB(SuperSpeedのリセットループ等)で
+# 無限に居座るため上限を設ける。低速なUSB2.0でも大容量カセットが入る余裕は残す。
+TimeoutStartSec=900
 ExecStart=/usr/local/bin/ucon-usb-install %I

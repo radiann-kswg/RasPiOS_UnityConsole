@@ -17,6 +17,8 @@ MNT="$(mktemp -d /run/unitycon-usb.XXXXXX)"
 cleanup() {
     umount "${MNT}" 2>/dev/null || true
     rmdir "${MNT}" 2>/dev/null || true
+    # 中断された場合に作りかけの一時ディレクトリを残さない（tmp名は ucon_install_dir の $$ = 本PID）
+    rm -rf "${APPS_DIR}"/*.tmp."$$" 2>/dev/null || true
 }
 trap cleanup EXIT
 

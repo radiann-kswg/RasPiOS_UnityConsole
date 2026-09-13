@@ -42,6 +42,11 @@ ucon_install_dir() {
 
     need="$(ucon_size_kb "${src}")"
     avail="$(ucon_free_kb)"
+    # du/df が失敗した場合（読み出しエラーのUSB等）に空文字を 0 と誤解して先へ進めない
+    if [ -z "${need}" ] || [ -z "${avail}" ]; then
+        echo "メディアの読み出しに失敗しました: ${name}"
+        return 1
+    fi
     if [ "$((need + MARGIN_KB))" -gt "${avail}" ]; then
         echo "空き容量不足: ${name} (必要 $((need / 1024))MB / 空き $((avail / 1024))MB)"
         return 2
