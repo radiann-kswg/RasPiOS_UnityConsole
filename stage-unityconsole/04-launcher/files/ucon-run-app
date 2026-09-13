@@ -19,7 +19,14 @@ chmod +x "${EXE}" 2>/dev/null || true
 
 cd "${APP_DIR}" || { echo "アプリディレクトリへ移動できません: ${APP_DIR}" >&2; exit 1; }
 
-# box64 動作設定（必要に応じて調整）
+# RPi の V3D (Mesa) は素の GL バージョン報告が 3.1 のため、Unity(OpenGLCore) が要求する
+# 3.3 相当へ引き上げる（RasPiOS_NTsWallpaper の run-signage.sh で実証済み。Vulkan アプリには無害）
+export MESA_GL_VERSION_OVERRIDE=3.3
+export MESA_GLSL_VERSION_OVERRIDE=330
+
+# box64 動作設定（安定性優先。問題があれば BIGBLOCK を 1 に下げる）
+export BOX64_DYNAREC_BIGBLOCK=2
+export BOX64_DYNAREC_SAFEFLAGS=1
 export BOX64_LOG=0
 
 exec box64 "${EXE}" "$@"

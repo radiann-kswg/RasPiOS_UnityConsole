@@ -118,6 +118,7 @@ class Launcher:
         self.open_display()
         self.init_joysticks()
         self.clock = pygame.time.Clock()
+        self._apps_mtime = None
         self.apps = scan_apps()
         self.cursor = 0
         self.mode = "list"          # list / menu / bt / busy
@@ -379,10 +380,22 @@ class Launcher:
                 except Exception as e:
                     self.message = f"ペアリング失敗: {e}"
 
+    def refresh_apps(self):
+        """apps/ の mtime が変わった時だけ再走査（USBカセット挿入や退避を一覧へ即反映）"""
+        try:
+            m = os.stat(APPS_DIR).st_mtime
+        except OSError:
+            m = None
+        if m != self._apps_mtime:
+            self._apps_mtime = m
+            self.apps = scan_apps()
+            self.cursor = min(self.cursor, len(self.apps))
+
     def loop(self):
         while self.running:
             nav, ok, back = self.poll_nav()
             if self.mode == "list":
+                self.refresh_apps()
                 self.update_list(nav, ok, back)
             elif self.mode == "menu":
                 self.update_menu(nav, ok, back)
