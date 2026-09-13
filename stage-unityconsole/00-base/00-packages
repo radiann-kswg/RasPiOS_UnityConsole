@@ -8,6 +8,9 @@ mesa-vulkan-drivers
 libvulkan1
 libgl1
 libglx-mesa0
+libgl1-mesa-dri
+libegl-mesa0
+libegl1
 libgles2
 libsdl2-2.0-0
 libpulse0
@@ -17,6 +20,7 @@ pipewire-pulse
 wireplumber
 alsa-utils
 bluez
+dnsmasq
 unzip
 zip
 rsync

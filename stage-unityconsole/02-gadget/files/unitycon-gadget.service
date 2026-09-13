@@ -1,6 +1,7 @@
 [Unit]
-Description=UnityConsole USB gadget (CDC-ACM serial)
-After=local-fs.target sys-kernel-config.mount
+Description=UnityConsole USB gadget (CDC-NCM ethernet + CDC-ACM serial)
+After=systemd-modules-load.service sys-kernel-config.mount
+Before=dnsmasq.service
 
 [Service]
 Type=oneshot
