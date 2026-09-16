@@ -13,7 +13,7 @@ DEV="/dev/${DEVNAME}"
 
 MNT="$(mktemp -d /run/unitycon-usb.XXXXXX)"
 # trap から間接的に呼ばれるため shellcheck の到達性判定は無視する
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2329
 cleanup() {
     umount "${MNT}" 2>/dev/null || true
     rmdir "${MNT}" 2>/dev/null || true
@@ -59,12 +59,12 @@ while IFS= read -r -d '' zip; do
     install_one zip "${zip}" "$(basename "${zip%.*}")"
 done < <(find "${SEARCH_DIR}" -maxdepth 1 -type f \( -name '*.zip' -o -name '*.ZIP' \) -print0 2>/dev/null)
 
-# ディレクトリ形式（*.x86_64 を含むもののみ）
+# ディレクトリ形式（*.x86_64 を含むもののみ。隠しディレクトリ＝退避中の一時コピー等は除外）
 while IFS= read -r -d '' dir; do
     if [ -n "$(ucon_find_exe "${dir}")" ]; then
         install_one dir "${dir}" "$(basename "${dir}")"
     fi
-done < <(find "${SEARCH_DIR}" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+done < <(find "${SEARCH_DIR}" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -print0 2>/dev/null)
 
 msg="USBカセット: 追加${installed}件"
 [ "${skipped}" -gt 0 ] && msg="${msg} / 導入済${skipped}件"
