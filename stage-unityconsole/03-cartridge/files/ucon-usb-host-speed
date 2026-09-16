@@ -1,0 +1,51 @@
+#!/bin/bash
+# 本体の USB ポート（Pi 4 の青い USB 3.0 ポートを含む）の動作速度を切り替える。
+# 使い方: ucon-usb-host-speed [high|super]   引数省略時は /boot/firmware/unitycon.conf の USB_HOST_SPEED
+#
+# high  (既定): SuperSpeed ルートハブ(usb2)の各ポートを sysfs の port/disable で無効にし、
+#               全ポートを USB 2.0(High-Speed)側のハブで動かす。
+#               Type-C 1本で給電している Pi 4 では、青いポートに挿した USB メモリが SuperSpeed で列挙された後
+#               データ読み出しだけが 30 秒でタイムアウトし、リセットを繰り返して固まる（2026-09-13 実機で確認）。
+#               ゲームカセットの転送量では USB 2.0 で十分なので、既定でこちらにする。
+# super       : USB 3.0 も有効（十分な電源がある場合）。
+# ※ ルートハブ自体を unbind する方法は、青いポートが USB 2.0 にも落ちず完全に使えなくなり、
+#    bind し直しも失敗する（2026-09-16 実機で確認）ため使わない。
+set -u
+CONF=/boot/firmware/unitycon.conf
+USB_HOST_SPEED=high
+if [ -r "${CONF}" ]; then
+    # shellcheck disable=SC1090
+    . "${CONF}"
+fi
+MODE="${1:-${USB_HOST_SPEED}}"
+
+# SuperSpeed(5000Mbps 以上)ルートハブのポート（Pi 4 では usb2 の 4 ポート）
+ss_ports() {
+    local h
+    for h in /sys/bus/usb/devices/usb*; do
+        [ -e "${h}/speed" ] || continue
+        [ "$(cat "${h}/speed")" -ge 5000 ] || continue
+        ls -d "${h}"/*/usb*-port*/disable 2>/dev/null
+    done
+}
+
+# 起動直後は xhci の初期化を待つ（最大 5 秒）
+for _ in $(seq 10); do
+    [ -n "$(ss_ports)" ] && break
+    sleep 0.5
+done
+
+case "${MODE}" in
+high)  val=1; msg="SuperSpeed ポートを無効化。全ポートを USB 2.0 で使用" ;;
+super) val=0; msg="SuperSpeed ポートを有効化" ;;
+*)
+    echo "ucon-usb-host-speed: USB_HOST_SPEED=${MODE} は不明です (high|super)。変更しません" >&2
+    exit 0
+    ;;
+esac
+n=0
+for p in $(ss_ports); do
+    echo "${val}" > "${p}" && n=$((n + 1))
+done
+echo "ucon-usb-host-speed: ${msg} (${n} ports)"
+exit 0

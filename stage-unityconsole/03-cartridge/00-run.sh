@@ -5,6 +5,9 @@ install -m 644 files/ucon-lib.sh      "${ROOTFS_DIR}/usr/lib/unityconsole/ucon-l
 install -m 755 files/ucon-install     "${ROOTFS_DIR}/usr/local/bin/ucon-install"
 install -m 755 files/ucon-usb-install "${ROOTFS_DIR}/usr/local/bin/ucon-usb-install"
 install -m 755 files/ucon-backup      "${ROOTFS_DIR}/usr/local/bin/ucon-backup"
+install -m 755 files/ucon-usb-host-speed "${ROOTFS_DIR}/usr/local/bin/ucon-usb-host-speed"
+install -m 644 files/unitycon-usb-host-speed.service \
+    "${ROOTFS_DIR}/etc/systemd/system/unitycon-usb-host-speed.service"
 
 install -m 644 files/99-unitycon-usb.rules \
     "${ROOTFS_DIR}/etc/udev/rules.d/99-unitycon-usb.rules"
@@ -15,3 +18,7 @@ install -m 644 files/unitycon-usb-install@.service \
 sed "s/^player /${FIRST_USER_NAME} /" files/010_unitycon-sudoers \
     > "${ROOTFS_DIR}/etc/sudoers.d/010_unitycon"
 chmod 440 "${ROOTFS_DIR}/etc/sudoers.d/010_unitycon"
+
+on_chroot << EOF
+systemctl enable unitycon-usb-host-speed.service
+EOF

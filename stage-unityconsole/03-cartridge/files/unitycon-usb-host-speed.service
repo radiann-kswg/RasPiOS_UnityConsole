@@ -1,0 +1,13 @@
+[Unit]
+Description=UnityConsole USB host port speed (USB_HOST_SPEED in /boot/firmware/unitycon.conf)
+DefaultDependencies=no
+After=systemd-udevd.service boot-firmware.mount
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/ucon-usb-host-speed
+
+[Install]
+WantedBy=sysinit.target
