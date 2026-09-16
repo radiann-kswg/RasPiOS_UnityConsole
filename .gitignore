@@ -5,3 +5,9 @@ deploy/
 *.img.xz
 __pycache__/
 *.pyc
+# KiCad: ローカル状態・自動バックアップ・作業用出力
+*.kicad_prl
+*-backups/
+fp-info-cache
+hardware/*/check/
+hardware/*/datasheets/

@@ -7,6 +7,8 @@ cat >> "${ROOTFS_DIR}/boot/firmware/config.txt" << 'EOF'
 # --- UnityConsole ---
 # Type-C端子をUSBペリフェラル(ガジェット)として使用 (Pi 4 / Pi 5)
 dtoverlay=dwc2,dr_mode=peripheral
+# ホームボタン基板 (GPIO21=40番ピン / GND=39番ピン)。押下で KEY_HOMEPAGE(172) を発行
+dtoverlay=gpio-key,gpio=21,active_low=1,gpio_pull=up,keycode=172,label=HOME
 
 [pi5]
 # box64(汎用arm64ビルド)は4KBページ前提のため、Pi 5でも4Kページカーネルを使用

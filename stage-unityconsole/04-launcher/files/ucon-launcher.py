@@ -8,12 +8,18 @@ SDカードにインストール済みのUnityアプリ一覧をフルスクリ�
     ↑↓ / 十字キー : 選択移動
     Enter / Aボタン: 決定
     Esc / Bボタン  : 戻る
+    ホームボタン   : ゲーム中に短押しで一時停止+終了確認、長押し(2秒)で即終了
 """
+import glob
 import json
 import os
+import select
 import shutil
+import signal
+import struct
 import subprocess
 import sys
+import time
 
 import pygame
 
@@ -29,6 +35,14 @@ DIM = (130, 135, 150)
 WARN = (255, 190, 80)
 
 AXIS_THRESHOLD = 0.6
+
+# GPIOホームボタン: config.txt の dtoverlay=gpio-key が GPIO21 押下で KEY_HOMEPAGE を発行する
+HOME_KEYCODE = 172              # KEY_HOMEPAGE
+LONG_PRESS_SEC = 2.0
+EV_KEY = 1
+INPUT_EVENT = struct.Struct("llHHi")    # struct input_event (64bit)
+
+os.environ.setdefault("SDL_VIDEO_CENTERED", "1")    # 確認ダイアログを画面中央へ
 
 
 def find_exe(path):
@@ -109,6 +123,73 @@ def bt_pair(mac):
         if r.returncode != 0 and cmd[0] != "connect":
             return False, (r.stdout + r.stderr).strip().splitlines()[-1:]
     return True, []
+
+
+class HomeButton:
+    """ゲーム実行中だけ gpio-keys の evdev を直接読む（Xのフォーカスに依存しない）。"""
+
+    def __init__(self):
+        self.fds = []
+        self.down_at = None
+        for ev in glob.glob("/sys/class/input/event*"):
+            driver = os.path.realpath(ev + "/device/device/driver")
+            if os.path.basename(driver) != "gpio-keys":
+                continue
+            try:
+                self.fds.append(os.open("/dev/input/" + os.path.basename(ev),
+                                        os.O_RDONLY | os.O_NONBLOCK))
+            except OSError:
+                pass
+
+    def close(self):
+        for fd in self.fds:
+            os.close(fd)
+
+    def poll(self, timeout):
+        """"short"(離した時) / "long"(LONG_PRESS_SEC 押し続けた時点) / None"""
+        if self.fds:
+            readable = select.select(self.fds, [], [], timeout)[0]
+        else:
+            time.sleep(timeout)
+            readable = []
+        result = None
+        for fd in readable:
+            try:
+                data = os.read(fd, INPUT_EVENT.size * 64)
+            except OSError:
+                continue
+            for _, _, typ, code, value in INPUT_EVENT.iter_unpack(data):
+                if typ != EV_KEY or code != HOME_KEYCODE:
+                    continue
+                if value == 1:
+                    self.down_at = time.monotonic()
+                elif value == 0 and self.down_at is not None:
+                    self.down_at = None
+                    result = "short"
+        if (self.down_at is not None
+                and time.monotonic() - self.down_at >= LONG_PRESS_SEC):
+            self.down_at = None     # 離した時の "short" を出さない
+            result = "long"
+        return result
+
+
+def signal_app(proc, sig):
+    try:
+        os.killpg(proc.pid, sig)
+    except ProcessLookupError:
+        pass
+
+
+def stop_app(proc):
+    """TERM → 5秒で KILL。一時停止(SIGSTOP)中でも届くよう CONT を続けて送る。"""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        signal_app(proc, sig)
+        signal_app(proc, signal.SIGCONT)
+        try:
+            proc.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            pass
 
 
 class Launcher:
@@ -196,13 +277,63 @@ class Launcher:
     # --- アプリ実行 ---------------------------------------------------------
     def run_app(self, app):
         pygame.display.quit()
+        home = HomeButton()
         try:
-            subprocess.run([RUN_APP, app["path"]] + app["args"],
-                           check=False)
+            # 新しいプロセスグループで起動し、ホームボタンでグループごと止める
+            proc = subprocess.Popen([RUN_APP, app["path"]] + app["args"],
+                                    start_new_session=True)
+            while proc.poll() is None:
+                press = home.poll(0.2)
+                if press == "long" or (
+                        press == "short" and self.confirm_quit(proc, home)):
+                    stop_app(proc)
         finally:
+            home.close()
             pygame.display.init()
             self.open_display()
+            pygame.event.clear()    # ゲーム中に溜まったパッド入力を捨てる
             self.apps = scan_apps()
+
+    def confirm_quit(self, proc, home):
+        """ゲームを一時停止して終了確認ダイアログを出す。True なら終了。"""
+        signal_app(proc, signal.SIGSTOP)
+        pygame.display.init()
+        info = pygame.display.Info()
+        self.screen = pygame.display.set_mode(
+            (info.current_w // 2, info.current_h // 3), pygame.NOFRAME)
+        self.w, self.h = self.screen.get_size()
+        pygame.mouse.set_visible(False)
+        pygame.event.clear()
+        options = ["ゲームを終了する", "ゲームに戻る"]
+        choice = 0
+        decided = None
+        while decided is None:
+            press = home.poll(1 / 30)
+            nav, ok, back = self.poll_nav()
+            if press == "long":
+                decided = True
+            elif press == "short" or back:
+                decided = False
+            elif ok:
+                decided = (choice == 0)
+            choice = (choice + nav) % len(options)
+            self.screen.fill(BG)
+            pygame.draw.rect(self.screen, ACCENT, self.screen.get_rect(), 3)
+            self.text("ゲームを終了しますか？", self.font_big, FG,
+                      self.w // 2, self.h // 10, center=True)
+            for i, opt in enumerate(options):
+                selected = (i == choice)
+                self.text(("▶ " if selected else "   ") + opt, self.font,
+                          ACCENT if selected else FG,
+                          self.w // 4, self.h * (4 + 2 * i) // 10)
+            self.text("A/Enter: 決定  B/Esc・ホーム: 戻る  ホーム長押し: 終了",
+                      self.font_small, DIM, self.w // 2, self.h * 17 // 20,
+                      center=True)
+            pygame.display.flip()
+        pygame.display.quit()
+        if not decided:
+            signal_app(proc, signal.SIGCONT)
+        return decided
 
     def do_backup(self, app):
         self.message = "バックアップ中..."
