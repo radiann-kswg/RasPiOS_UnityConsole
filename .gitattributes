@@ -1,0 +1,10 @@
+# pi-gen のステージは Linux 上で実行されるため、テキストは常に LF で checkout する
+* text=auto eol=lf
+*.ps1 text eol=crlf
+# バイナリ（改行変換させない）
+*.ttf binary
+*.png binary
+*.pdf binary
+*.zip binary
+*.img binary
+*.xz binary

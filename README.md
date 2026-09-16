@@ -1,227 +1,174 @@
 # RasPiOS_UnityConsole
 
-Raspberry Pi をオリジナルゲーム機にするOSイメージ。
-Unityで開発したゲーム（Linux x86_64ビルド）を box64 エミュレーションで実行し、
-USBメモリ「ゲームカセット」やType-C接続のPCからSDカードへ自動インストールする。
+Raspberry Pi 4 / 5 を **Unity 製ゲームを遊ぶためのゲーム機**にするオリジナル OS イメージ
+（pi-gen / arm64 / Raspberry Pi OS Lite（Debian trixie）ベース）。
+Unity の Linux (x86_64) ビルドを [box64](https://github.com/ptitSeb/box64) で動かし、
+USB メモリの「ゲームカセット」を挿すだけで SD カードへ自動インストールする。
 
-## 対応ハードウェア
+> **License**: [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.ja)（同梱フォント等は[対象外](#ライセンス)）
+> © ラジアン（柏木主税） / RadianN_kswg
 
-- Raspberry Pi 4 / Raspberry Pi 5（arm64・64bitイメージ）
-- Pi 5では box64（汎用arm64ビルド、4KBページ前提）のため `kernel=kernel8.img` で4Kページカーネルを使用
-- Pi 4B 実機での通し検証は未実施
+![実機（Raspberry Pi 4B）のランチャー画面。HDMI 1280×720 の出力をそのまま取得](docs/images/launcher-hdmi.png)
 
-1台の Pi 4B を本プロジェクトの他イメージ（DigitalSignage / GadgetMonitor）と切り換えて使う手順は
-[../docs/pi4b-image-switching.md](../docs/pi4b-image-switching.md) を参照。
-標準はmicroSDの差し替え。USBメモリは「ゲームカセット」として使うため、USBメディアからの起動と併用しないこと。
+## 特長
 
-## 機能
-
-| 機能 | 実装 |
+| 機能 | 内容 |
 | --- | --- |
-| Unityアプリ実行 | box64 による Linux x86_64 ビルドのエミュレーション実行 |
-| Type-C転送 | USB複合ガジェット(CDC-NCM + CDC-ACM)。シリアル側へPCから `tools/send-app.py` でzipを送ると自動インストール。NCM側はSSH保守リンク(10.89.0.1) |
-| USBカセット | USBメモリ挿入をudevで検知し `/UnityGames/` 配下のzip・フォルダを自動インストール |
-| ランチャー | 起動時にフルスクリーンのアプリ一覧を表示（pygame・レトロゲーム機風UI、後述）。アプリ終了後もここに戻る |
-| バックアップ | SD容量不足時、ランチャーからアプリをUSBメモリへ退避（USBは再挿入でカセットとして機能） |
-| 入力 | USB接続のキーボード/マウス/ゲームパッド、Bluetooth機器（ランチャーにペアリング画面あり） |
-| ホームボタン | GPIO 35〜40番ピンに挿す物理ボタン基板。ゲーム中に短押しで一時停止＋終了確認、長押し(2秒)で即終了（後述） |
+| Unity アプリ実行 | box64 による Linux x86_64 ビルドの実行。Mesa の設定で OpenGLCore ビルドもそのまま動く |
+| USB カセット | USB メモリの `/UnityGames/` に置いたビルドフォルダや zip を、挿すだけで自動インストール |
+| Type-C 転送・保守 | Type-C 1本で給電 + USB 複合ガジェット。シリアルでアプリ転送（`tools/send-app.py`）、USB ネットワークで SSH 保守 |
+| ランチャー | 平成のゲーム機本体を思わせるドット絵 UI。アプリ終了後もここに戻る |
+| 退避 | SD が一杯になったら、ランチャーからアプリを USB メモリへ移動（挿し直せば再インストール） |
+| 入力 | USB / Bluetooth のゲームパッド・キーボード（ランチャーにペアリング画面あり） |
+| ホームボタン | GPIO に挿す小基板。ゲーム中に短押しで一時停止＋終了確認、長押しで即終了（[設計データ](docs/home-button.md)） |
 
-## Unityアプリの作り方（要件）
+## 画面
 
-1. Unityで **Linux (x86_64)** をターゲットにビルドする（Unity Personalで可）。
-2. Player設定で **Vulkan** を優先Graphics APIにすることを推奨
-   （Raspberry PiのOpenGLは3.1相当のため。`-force-vulkan` 起動引数でも可）。
-3. ビルド一式をフォルダまたはzipにまとめる:
+いちばん上の画像は実機の HDMI 出力。下の画像は同じランチャーを Pi 上でオフスクリーン描画したもので、
+ソフト名・メッセージ・空き容量は表示例。
+
+| ソフトメニュー | 終了確認（ホームボタン短押し） |
+| --- | --- |
+| ![ソフトメニュー](docs/images/screen-menu.png) | ![終了確認ダイアログ](docs/images/screen-quit-dialog.png) |
+| **ソフトが多いとき（横スクロール）** | **Bluetooth ペアリング** |
+| ![横スクロール](docs/images/screen-list-scroll.png) | ![Bluetooth ペアリング](docs/images/screen-bluetooth.png) |
+| **ソフトが無いとき** | |
+| ![未インストール](docs/images/screen-empty.png) | |
+
+- 640×360 の論理解像度で描き、画面に収まる最大の整数倍で拡大する（1280×720 なら2倍、1920×1080 なら3倍）ので、ドットが崩れない。
+- ソフトは横並びのブロック（文字はソフト名の頭文字）。右上のブロック列は SD 全体に対する空き容量（16段）。
+- 見出しは「ヘッドアップデイジー」、本文は「マルモニカ」。どちらも 患者長ひっく さんの
+  [ゼロピクセルフリーフォント](https://hicchicc.github.io/00ff/)。
+- SFC・PS・SEGA 世代のゲーム機本体画面を参考に3案を作って比べ、32ビット CD-ROM 世代風の「ディスク・ブラウザ」案を採用した。
+
+## はじめかた
+
+1. [Releases](https://github.com/radiann-kswg/RasPiOS_UnityConsole/releases) から `*.img.xz` をダウンロードする
+   （SHA256 はリリースノートに記載）。自分でビルドする場合は [docs/build.md](docs/build.md)。
+2. Raspberry Pi Imager の「カスタムイメージを使う」で microSD（16GB 以上）へ書き込む。
+   Imager の OS カスタマイズ（ユーザー名・Wi-Fi 等）は使わない。
+3. Pi に microSD を挿し、HDMI とゲームパッド（またはキーボード）をつないで電源を入れる。
+   初回はパーティション拡張のために一度自動で再起動し、約1分半でランチャーが出る。
+4. **初期アカウントは `player` / `player` で、SSH が有効**。有線 LAN などのネットワークにつなぐ前に、
+   Type-C で PC とつないで `ssh player@10.89.0.1` で入り、`passwd` でパスワードを変える
+   （[USB リンクの詳細](docs/maintenance.md#type-c-の-usb-リンク)）。
+
+## Unity アプリの作り方
+
+1. Unity で **Linux (x86_64)** 向けにビルドする（Unity Personal で可）。
+2. ビルド一式をフォルダ（または zip）にまとめる。フォルダ名がアプリ ID になる。
 
 ```
-MyGame/                ← この名前がアプリIDになる
+MyGame/
   MyGame.x86_64        ← 実行ファイル（必須・1つ）
   MyGame_Data/
   UnityPlayer.so
-  game.json            ← 任意: {"name": "表示名", "args": ["-force-vulkan"]}
+  game.json            ← 任意（表示名と起動引数）
+```
+
+```json
+{"name": "表示名", "args": ["-screen-fullscreen", "1", "-screen-width", "960", "-screen-height", "540"]}
 ```
 
 ## アプリの入れ方
 
-**方法A: USBメモリ（ゲームカセット）**
-USBメモリのルートに `UnityGames/` フォルダを作り、その中にzipまたはビルドフォルダを置いて
-本体のType-Aポートに挿すだけ。自動でSDへインストールされ、ランチャーに通知が出る。
-（導入済みの同名アプリはスキップされるため、挿しっぱなしでも安全）
+**A. USB メモリ（ゲームカセット）** — USB メモリのルートに `UnityGames/` フォルダを作り、
+ビルドフォルダか zip を置いて本体の USB ポートに挿す。SD へ自動でインストールされ、ランチャーに通知が出る。
+導入済みの同名アプリはスキップするので、挿しっぱなしでもよい。
+Pi 4 で Type-C 給電のときは **黒い USB 2.0 ポート**を使う（[理由](docs/maintenance.md#pi-4-の-usb-30青ポートについて)）。
 
-**方法B: Type-Cケーブル（PCから転送）**
-本体のType-C端子（電源端子）とPCをUSBケーブルで接続すると、PC側にシリアルポート
-（Windows: COMx / Linux: /dev/ttyACM0）が現れる。
-
-```
-pip install pyserial
-python tools/send-app.py COM5 MyGame.zip
-```
-
-※ Type-Cからの給電が不足する場合はセルフパワーUSBハブ経由やPD対応ポートを使用。
-
-**方法C: Type-Cケーブル経由のSSH（保守・再デプロイ）**
-同じType-C接続でPC側には「UsbNcm Host Device」（USBネットワークアダプタ）も現れ、
-PCは 10.89.0.10〜20 をDHCPで取得する。`ssh player@10.89.0.1` で保守でき、
-`WSLSettings/scripts/deploy-unitycon.sh` は stage 内の `files/` を実機へ直接再配備する
-（イメージ再ビルド不要。ガジェット設定は `/boot/firmware/unitycon.conf`）。
-サブネットは GadgetMonitor 10.87 / NTsWallpaper 10.88 / Pi5仮OS 10.86 と衝突しない 10.89.0.0/24。
-
-## ホームボタン（GPIO）
-
-![ホームボタン基板](hardware/home-button/render.png)
-
-GPIOヘッダの **35〜40番ピン**（USB端子側の端）に 2x3 ソケットで挿す小基板（12.5×15mm）。
-ボタン側は Pi の基板端より外へ張り出す向きに挿す（シルクの `35` `36` がヘッダ側、`HOME` が外側）。
-
-| 操作 | 動作 |
-| --- | --- |
-| ゲーム中に短押し | ゲームを一時停止(SIGSTOP)して「ゲームを終了しますか？」を表示。A/Enter で決定、B/Esc かホーム短押しでゲームに戻る |
-| ゲーム中に長押し(2秒) | 確認なしで終了（SIGTERM、5秒で終わらなければ SIGKILL） |
-| ランチャー表示中 | 何もしない |
-
-- OS側は `config.txt` の `dtoverlay=gpio-key,gpio=21,active_low=1,gpio_pull=up,keycode=172,label=HOME`
-  （00-base で追記）が GPIO21 を KEY_HOMEPAGE の入力デバイスにし、ランチャーがゲーム実行中だけその evdev を直接読む
-  （Xのフォーカスに依存しない）。ゲームは独立したプロセスグループで起動し、グループごと停止・終了する。
-- **この機能より前に焼いたSDカード**は `deploy-unitycon.sh` の後、上記1行を `/boot/firmware/config.txt` の
-  `dtoverlay=dwc2,dr_mode=peripheral` の下へ追記して再起動する。
-- 回路: GPIO21(40番) ─ 1kΩ ─ タクトスイッチ ─ GND(39番)。プルアップは SoC 内蔵（約50kΩ、押下時 約0.07V）。
-  35〜40番の周りには電源ピンが無いので、**逆向き・1列ずれで挿しても信号ピン同士か GND との短絡にしかならない**
-  （1kΩ はそのとき出力ピンを GND に落とした場合の電流制限）。
-- GPIO21 は I2S の PCM_DOUT と共用。I2S DAC 等の HAT と併用する場合はピン割当の変更が必要。
-- 実機検証（2026-09-16, Pi 4B, NTsWallpaperEngine）: `pinctrl set 21 pd/pu` でボタン押下を模擬し、
-  短押し→一時停止＋ダイアログ、再度短押し/「ゲームに戻る」→再開、「ゲームを終了する」→終了、
-  長押し→約5秒でランチャーへ復帰、ランチャー表示中の押下→無反応を確認。**実基板は未製作**。
-
-### 基板データと JLCPCB 発注
-
-`hardware/home-button/` が KiCad 10 プロジェクト（ERC 0件 / DRC 0件・回路図との等価性チェック込み）。
-発注用ファイルは `hardware/home-button/jlcpcb/`。
-
-1. `home-button-gerber.zip` をアップロード（2層・1.6mm）。
-2. PCB Assembly を有効化。J1（THTソケット）は**裏面**実装なので Standard を選ぶ。
-   Economic にする場合は J1 を実装対象から外し、届いた基板に表側からはんだ付けする。
-3. `home-button-bom.csv` と `home-button-cpl.csv` をアップロードし、プレビューで
-   部品の位置と向き（特に裏面の J1 と SW1）を確認してから注文する。
-   J1 の CPL 回転角は JLCPCB 側モデルに合わせて KiCad 出力（-90°）から +90° 補正した 0°
-   （補正前はプレビューでソケット本体がパッド列と直交していた。2026-09-16 確認）。
-
-| Ref | 部品 | LCSC | 備考 |
-| --- | --- | --- | --- |
-| SW1 | XKB TS-1187A-B-A-B（5.1mm角・高さ1.5mm・160gf） | C318884 | Basic |
-| R1 | 1kΩ 0603 | C21190 | Basic |
-| J1 | 2.54mm 2x3 メスソケット 高さ8.5mm（PM254-2-03-Z-8.5） | C2897404 | Extended・THT |
-
-## ランチャーの画面
-
-32ビットCD-ROM世代の本体メニューを意識した「ディスク・ブラウザ」デザイン
-（Claude Design で3案を比較して採用。デザインキャンバス: https://claude.ai/artifact/FpPZBJiybHwMvGGY4ubZCD ）。
-
-- 640×360 の論理解像度で描き、画面に収まる最大の整数倍で拡大表示する（1280×720 なら2倍、1920×1080 なら3倍）。
-- ソフトは横並びのブロック。←→（↑↓も可）で選択、A/Enter で「起動 / USBメモリへバックアップ(退避) / 削除 / 戻る」。
-  ブロックの文字はソフト名の頭文字。6本以上は横スクロール（端に矢印）。
-- 右上の「SD空き容量」の下のブロック列は、SD全体に対する空きの割合（16段）。
-- フォント: 見出しに ヘッドアップデイジー、本文に マルモニカ。
-  いずれも 患者長ひっく さんの [ゼロピクセルフリーフォント](https://hicchicc.github.io/00ff/)。
-  `stage-unityconsole/04-launcher/files/fonts/` に同梱し `/usr/share/fonts/truetype/00ff/` へ入る
-  （利用規約の要約は同フォルダの `README.md`）。フォントが無い場合は Noto Sans CJK で表示する。
-- 画面確認: `UCON_WINDOW=1280x720` を付けて起動すると全画面ではなく窓で開く。
-
-## 容量不足時の運用
-
-SDカードが一杯でインストールに失敗すると、ランチャーに通知が表示される。
-ランチャーでアプリを選び「USBメモリへバックアップ(退避)」を実行すると、
-アプリがUSBの `/UnityGames/` へ移動されSD容量が解放される。
-退避したアプリはそのUSBを挿し直せば再インストールできる。
-
-- FAT32 / exFAT のUSBメモリでよい。所有者・パーミッションは保存されない（実行ビットは再インストール時に付け直す）。
-- USB上では `UnityGames/.<アプリ名>.tmp.<PID>` へコピーして検証後に差し替えるため、失敗しても
-  USB上の既存コピーは消えない。必要容量はUSB側のクラスタサイズで見積もる。
-- 画面には `ucon-backup` の要約（標準出力の最終行）が出る。`cp` 等の詳細は
-  `journalctl -t ucon-backup` に残る。
-- USBカセットの自動導入中（USBを読み込み専用で使用中）は退避できない。導入の通知が出てから実行する。
-- 2026-09-16 までの版は `cp -a` が FAT で所有者を保存できずに必ず失敗し
-  （画面には「…の所有者の保護に失敗しました: 許可されていない操作です」）、しかもコピー前に
-  USB上の同名アプリを削除していた。
-
-## ビルド方法
-
-Cowork（サンドボックス）では実ビルド不可。Linux環境（WSL2可）で行います。
+**B. Type-C ケーブル（PC から転送）** — 本体の Type-C 端子と PC をつなぐと、PC にシリアルポートが現れる。
 
 ```bash
-# 1. リポジトリを Linux ファイルシステムへ複製
-#    Windows 側の開発ルートはパスに空白を含み、build-image.sh 冒頭のチェックで拒否される。
-#    性能面でも NTFS 越え (/mnt/c /mnt/d) のビルドは避けること。
-rsync -a --exclude 'pi-gen/' --exclude 'work/' --exclude 'deploy/' \
-  "/mnt/d/Claude Coworks Projectfile/RaspberryPiOSEditor/RasPiOS_UnityConsole/" \
-  ~/workspaces/RasPiOS_UnityConsole/
-cd ~/workspaces/RasPiOS_UnityConsole
-
-# 2. ビルド
-./build-image.sh docker   # Docker Desktop (WSL2バックエンド) 推奨
-# または
-./build-image.sh native   # Debian/Ubuntu実機 (要 sudo・依存パッケージ)
+pip install pyserial
+python tools/send-app.py COM5 MyGame.zip        # Linux なら /dev/ttyACM0
 ```
 
-- Docker モードでも**ホストに `qemu-user-binfmt` が必要**です。`pi-gen/build-docker.sh` が
-  コンテナ起動**前**に `which qemu-arm` を確認し、無ければ即終了します。
-- 本リポジトリは **arm64 ブランチ**（Debian 公式アーカイブ）を使うため、armhf 側で必要な
-  Raspbian 署名鍵の SHA-1 回避（`SEQUOIA_CRYPTO_POLICY`）は**不要**です。
-- 環境準備は `WSLSettings` リポジトリの `scripts/setup-pigen.sh` が一括で行います。
-  検証の詳細は同リポジトリの `docs/raspberrypi-pigen-build-verification.md` を参照。
-- 再実行前に `docker rm -f pigen_work`（残っていると "already exists" で止まります）。
-- 長時間かかるため、対話セッションから回すときは
-  `nohup setsid ./build-image.sh docker > build.log 2>&1 &` でバックグラウンド起動し
-  `tail -f` で追ってください。
+**C. SSH** — 同じ Type-C 接続で `ssh player@10.89.0.1` に入れる。ファイルを置いて `ucon-install <zip|フォルダ>` でも導入できる。
 
-成果物: `pi-gen/deploy/*.img.xz` → Raspberry Pi Imager等でSDカードへ書き込み。
+## 操作
 
-WSL2 では `WSLSettings/scripts/build-unitycon.sh`（同期→静的検証→binfmt→systemd-run でバックグラウンドビルド、
-ログ `/root/unitycon-build.log`）、SD書き込みは同 `flash-unitycon.ps1`（管理者PowerShell・生書き込み・SHA256照合）が定型。
+| 操作 | ランチャー | ゲーム中 |
+| --- | --- | --- |
+| ←→ / ↑↓（十字キー・スティック） | 選択 | — |
+| A / Enter | 決定 | — |
+| B / Esc | 戻る | — |
+| ホームボタン 短押し | — | 一時停止して終了確認 |
+| ホームボタン 長押し（2秒） | — | すぐに終了 |
 
-> 注意: box64はビルド時（chroot内）に https://ryanfortner.github.io/box64-debs/
-> からインストールされるため、ビルドマシンにインターネット接続が必要。
+ソフトを決定すると「起動 / USBメモリへバックアップ(退避) / 削除 / 戻る」を選べる。
+ゲームパッドのボタン番号の割り当ては機種によって異なる（ボタン0 が A、ボタン1 が B）。
 
-## 初期アカウント
+## 対応ハードウェアと検証状況
 
-- ユーザー: `player` / パスワード: `player`（**運用前に必ず変更**）
-- ホスト名: `unitycon`、SSH有効（メンテナンス用）
+| 対象 | 状況 |
+| --- | --- |
+| Raspberry Pi 4B | 実機で確認済み（起動、USB カセット導入、ゲーム実行、退避と再導入、ランチャー表示。HDMI 1280×720、Type-C を PC に接続して給電） |
+| Raspberry Pi 5 | 設定は入っているが実機未検証（box64 のため 4K ページカーネルを使う） |
+| ホームボタン基板 | 設計・発注データのみ（実基板は未製作。GPIO を模擬して動作確認済み） |
 
-## 構成
+box64 によるエミュレーションなので CPU 負荷は高く、重い 3D ゲームは厳しい。
+USB メモリは「ゲームカセット」として使うため、USB メディアからの起動とは併用しない。
+
+## ドキュメント
+
+- [docs/build.md](docs/build.md) — イメージのビルド（WSL2 を含む）とステージ構成
+- [docs/maintenance.md](docs/maintenance.md) — USB リンク、ファイルだけの更新、カセットと退避の仕組み、本体内のパス、既知の注意点
+- [docs/home-button.md](docs/home-button.md) — ホームボタン基板と JLCPCB 発注
+
+## リポジトリ構成
 
 ```
-config                     pi-gen設定 (arm64/trixie, STAGE_LIST)
-build-image.sh             ビルドラッパー (pi-gen clone→stage同期→build)
+config                     pi-gen 設定（arm64 / trixie / STAGE_LIST）
+build-image.sh             ビルドラッパー（pi-gen の取得 → 独自ステージ同期 → ビルド）
 stage-unityconsole/
-  00-base/                 パッケージ・boot設定(dwc2/4Kページ)・ディレクトリ・権限
-  01-box64/                box64導入 (box64-debsリポジトリ)
-  02-gadget/               Type-C USBガジェット(NCM+ACM複合) + dnsmasq(DHCP) + シリアル受信サービス
-  03-cartridge/            USBカセット自動インストール + バックアップCLI
-  04-launcher/             pygameランチャー (tty1キオスクXセッション)
-  05-purge-cloud-init/     cloud-init の除去（後述）
-tools/send-app.py          PC側転送ツール (pyserial)
-hardware/home-button/      ホームボタン基板 (KiCad 10) と JLCPCB 発注データ
+  00-base/                 パッケージ・config.txt・ディレクトリ・権限
+  01-box64/                box64 の導入
+  02-gadget/               Type-C USB ガジェット（NCM + ACM）・dnsmasq・シリアル受信
+  03-cartridge/            USB カセット自動インストール・退避 CLI
+  04-launcher/             ランチャー（キオスク X セッション）と同梱フォント
+  05-purge-cloud-init/     cloud-init の除去（必ず最後）
+tools/send-app.py          PC 側のアプリ転送ツール（pyserial）
+hardware/home-button/      ホームボタン基板（KiCad 10）と JLCPCB 発注データ
+docs/                      ドキュメントと画面画像
 ```
 
-### 本体内の主なパス
+## ライセンス
 
-- アプリ格納: `/var/lib/unityconsole/apps/<アプリ名>/`
-- 通知ファイル: `/var/lib/unityconsole/notify.txt`（ランチャーが表示）
-- CLI: `ucon-install` / `ucon-backup` / `ucon-usb-install`
+本リポジトリの独自制作物（ビルド構成・スクリプト・ランチャー・PC 側ツール・ホームボタン基板の設計データ・
+ドキュメント・画面デザインと画面画像）は
+**[Creative Commons 表示 - 継承 4.0 国際 (CC BY-SA 4.0)](https://creativecommons.org/licenses/by-sa/4.0/deed.ja)**
+で公開しています。ライセンス正文は [LICENSE](LICENSE) を参照してください。
+改変したものを公開するときは、同じ CC BY-SA 4.0（または互換ライセンス）で公開してください。
 
-## 補足: cloud-init について
+**著作者（ライセンス主）: ラジアン（柏木主税） / RadianN_kswg**
 
-pi-gen の `stage2/04-cloud-init/00-packages` は `cloud-init` と `rpi-cloud-init-mods` を
-**無条件**に導入します。`config` の `ENABLE_CLOUD_INIT=0` が抑止するのは
-`stage2/04-cloud-init/01-run.sh` による `boot/firmware/{meta-data,user-data,network-config}`
-の配置だけで、パッケージ本体と systemd ユニットはイメージに残ります。
+利用時のクレジット表記例:
 
-本リポジトリでは `stage-unityconsole/05-purge-cloud-init/` を最後のサブステージとして置き、
-明示的に `apt-get purge` する構成にしています。先行サブステージで導入したパッケージが
-`autoremove` の巻き添えにならないよう、**このサブステージは必ず最後**に置いてください。
+```
+RasPiOS_UnityConsole by ラジアン（柏木主税） / RadianN_kswg
+CC BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0/
+```
 
-## 制約・既知の注意点
+### 同梱物・サードパーティ
 
-- box64エミュレーションのため、重量級3Dゲームは性能不足になり得る（Pi 5推奨）。
-- Unity 2021以降のLinuxビルドを想定。IL2CPP/Monoいずれも可。
-- OpenGLCoreを要求するビルドは `-force-vulkan` の指定を推奨。
-- Pi 4のType-Cはデータ線がガジェット対応。Pi 5も同様だが、給電要件（5V/5A推奨）に注意。
+- **フォント**（`stage-unityconsole/04-launcher/files/fonts/` の `x12y16pxMaruMonica.ttf` と `x14y24pxHeadUpDaisy.ttf`）
+  — © hicc（患者長ひっく）、[ゼロピクセルフリーフォント](https://hicchicc.github.io/00ff/)。
+  **CC BY-SA 4.0 の対象外**で、作者の独自ライセンス（ソフトウェアへの同梱・再配布・商用利用は可、
+  フォント単体の販売は不可など）に従います。要約は [fonts/README.md](stage-unityconsole/04-launcher/files/fonts/README.md)、
+  正式な規約は配布サイトを参照してください。
+- ビルド基盤 [pi-gen](https://github.com/RPi-Distro/pi-gen)（BSD 3-Clause）は**本リポジトリに含まれず**、
+  ビルド時に `build-image.sh` が取得します。
+- [box64](https://github.com/ptitSeb/box64)（MIT）は本リポジトリに含まれず、ビルド時に
+  [box64-debs](https://github.com/ryanfortner/box64-debs) から OS イメージへ導入されます。
+- ビルドで生成される **OS イメージには Raspberry Pi OS / Debian の各パッケージが含まれ、それぞれのライセンス**
+  （GPL ほか）に従います。CC BY-SA 4.0 が適用されるのは本リポジトリ収録の独自制作物のみです。
+  パッケージの一覧は各リリースに添付する `.info` ファイルにあり、ソースコードは Debian と
+  Raspberry Pi のアーカイブ（`apt-get source <パッケージ名>`）から入手できます。
+- 「Unity」は Unity Technologies、「Raspberry Pi」は Raspberry Pi Ltd の商標です。
+  本プロジェクトはいずれとも関係のない非公式のプロジェクトです。
+
+### クレジット
+
+- **患者長ひっく（hicc）さん** — ランチャーのピクセルフォント（ゼロピクセルフリーフォント）。
+- **Claude（Anthropic）** — Cowork の Agent 機能による設計・実装・実機デバッグ支援、Claude Design による画面デザイン案の作成。
