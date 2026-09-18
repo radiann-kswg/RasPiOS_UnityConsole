@@ -91,6 +91,16 @@ INPUT_EVENT = struct.Struct("llHHi")    # struct input_event (64bit)
 
 os.environ.setdefault("SDL_VIDEO_CENTERED", "1")    # 確認ダイアログを画面中央へ
 
+_shutdown = False
+
+
+def _request_shutdown(signum, frame):
+    """SIGTERM/SIGINT で速やかに終了する（systemctl stop/restart が
+    90秒待たされて SIGKILL される問題への対策）。ハンドラ内では旗を立てるだけにし、
+    実際の後始末（ゲーム終了・pygame.quit）は各ループ側で行う。"""
+    global _shutdown
+    _shutdown = True
+
 
 def find_exe(path):
     for entry in sorted(os.listdir(path)):
@@ -394,6 +404,10 @@ class Launcher:
         pygame.display.flip()
 
     def init_joysticks(self):
+        # ホットプラグ対応: 抜き差しで古いハンドルが残ると SDL が再挿入した
+        # デバイスを open せず、入力イベントが一切来なくなる（起動前から挿しっぱ
+        # なし→抜き差しで無反応になる件）。quit() で全て閉じてから開き直す。
+        pygame.joystick.quit()
         pygame.joystick.init()
         self.joysticks = []
         for i in range(pygame.joystick.get_count()):
@@ -458,6 +472,9 @@ class Launcher:
             proc = subprocess.Popen([RUN_APP, app["path"]] + app["args"],
                                     start_new_session=True)
             while proc.poll() is None:
+                if _shutdown:           # systemctl stop/restart: ゲームごと畳んで抜ける
+                    stop_app(proc)
+                    break
                 press = home.poll(0.2)
                 if press == "long" or (
                         press == "short" and self.confirm_quit(proc, home)):
@@ -484,6 +501,9 @@ class Launcher:
         choice = 0
         decided = None
         while decided is None:
+            if _shutdown:               # 終了要求が来たらゲームを終了扱いで畳む
+                decided = True
+                break
             press = home.poll(1 / 30)
             nav, ok, back = self.poll_nav()
             if press == "long":
@@ -815,7 +835,7 @@ class Launcher:
             self.cursor = min(self.cursor, len(self.apps))
 
     def loop(self):
-        while self.running:
+        while self.running and not _shutdown:
             nav, ok, back = self.poll_nav()
             if self.mode == "list":
                 self.refresh_apps()
@@ -831,6 +851,9 @@ class Launcher:
 
 def main():
     launcher = Launcher()
+    # pygame.init が入れる SDL 側 SIGTERM ハンドラを、構築後に自前へ上書きする。
+    signal.signal(signal.SIGTERM, _request_shutdown)
+    signal.signal(signal.SIGINT, _request_shutdown)
     launcher.loop()
     pygame.quit()
 

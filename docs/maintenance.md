@@ -44,6 +44,10 @@ ssh -t player@10.89.0.1 'sudo install -m 755 /tmp/ucon-launcher.py /usr/lib/unit
 ```
 
 - Windows で編集したファイルは改行コードを LF にしてから送る。
+- `systemctl restart unitycon-launcher` は約 0.4 秒で戻る（2026-09-18 まで 90 秒待たされて SIGKILL されていた。
+  `PAMName=login` で全プロセスが logind の session scope へ移り service の cgroup が空になるのが原因。
+  `unitycon-launcher.service` の `ExecStop` で xinit ごと TERM する。詳細は unit ファイルのコメント）。
+  ゲーム実行中に再起動した場合、ランチャーは SIGTERM を受けてゲームを止めてから終了する（取り残さない）。
 - `unitycon-gadget.service` は再起動しない（USB リンク自体が切れる。反映は Pi の再起動で）。
 - **退避やカセット導入の最中にランチャーを再起動しない**。退避コマンドはランチャーのサービスの一部として動いているため一緒に止まる
   （SD 側のアプリは最後まで消さない作りなので失われはしない）。

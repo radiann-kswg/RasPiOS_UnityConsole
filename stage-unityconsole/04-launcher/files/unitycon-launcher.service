@@ -13,6 +13,15 @@ TTYVHangup=yes
 UtmpIdentifier=tty1
 WorkingDirectory=~
 ExecStart=/usr/bin/startx /usr/lib/unityconsole/ucon-xsession -- :0 vt1 -nolisten tcp -quiet
+# 停止が 90 秒かかっていた件の修正（2026-09-18 実機計測: 90s → 0.4s）:
+#  - PAMName=login により全プロセスが logind の session scope へ移り、この service 自身の cgroup は空。
+#    KillMode=control-group の SIGTERM は誰にも届かず、TimeoutStopSec まで待って SIGKILL されていた。
+#  - startx は SIGTERM を trap して(認証ファイル削除のみ)待ち続けるので、同じプロセスグループの xinit ごと
+#    TERM する。xinit が X サーバとクライアント(ランチャー)を畳む。
+#  - $MAINPID は systemd では単語単位でしか展開されない("-$MAINPID" は展開されず文字通り渡る)ため、
+#    sh 経由で環境変数として展開させる。procps の kill は負の pgid の前に -- が必要。
+ExecStop=/bin/sh -c '/bin/kill -TERM -- -$MAINPID'
+TimeoutStopSec=20
 Restart=always
 RestartSec=3
 

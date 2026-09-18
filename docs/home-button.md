@@ -38,6 +38,10 @@ NTsWallpaperEngine 実行中に `pinctrl set 21 pd` / `pu` でボタン押下を
 - 長押し → 約5秒でランチャーへ復帰
 - ランチャー表示中の押下 → 無反応
 
+2026-09-18 に 256GB microSD へ焼き直した実機（Type-C 経由 SSH で `ucon-install` したアプリを
+ランチャーから起動）でも同じ 4 パターンを再確認した（短押し→一時停止 `T` / 再短押し→再開 / 長押し→終了 /
+ランチャー中→無反応）。押下の模擬は上記と同じ `pinctrl set 21 pd`（押す）/ `pu`（離す）。
+
 ## 基板データと JLCPCB 発注
 
 `hardware/home-button/` が KiCad 10 プロジェクト（ERC 0件 / DRC 0件・回路図との等価性チェック込み）。
