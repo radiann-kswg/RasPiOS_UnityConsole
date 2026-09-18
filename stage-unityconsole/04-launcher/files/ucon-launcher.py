@@ -81,7 +81,14 @@ DRIFT = [
 
 DRIFT_TOP = 120    # 回転する多角形はこの行より下にしか来ない（半透明合成の範囲を絞る）
 
-AXIS_THRESHOLD = 0.6
+AXIS_THRESHOLD = 0.6    # ここを越えたらスティックを倒したと見なす
+AXIS_RELEASE = 0.35     # ここまで戻るまで次の入力を出さない（ヒステリシス）
+NAV_AXES = (0, 1, 3, 4)     # 左右スティックの XY。軸 2/5 はトリガーで静止値が -1 なので除く
+# ゲームから戻った時に捨てる「操作」イベント。JOYDEVICEADDED/REMOVED は捨てない
+# （捨てるとゲーム中に抜き差しされたパッドを取りこぼし、戻った時点で無反応になる）。
+CONTROL_EVENTS = (pygame.KEYDOWN, pygame.KEYUP,
+                  pygame.JOYBUTTONDOWN, pygame.JOYBUTTONUP,
+                  pygame.JOYAXISMOTION, pygame.JOYHATMOTION)
 
 # GPIOホームボタン: config.txt の dtoverlay=gpio-key が GPIO21 押下で KEY_HOMEPAGE を発行する
 HOME_KEYCODE = 172              # KEY_HOMEPAGE
@@ -363,7 +370,9 @@ class Launcher:
         self.sprites["arrow_r"] = pygame.transform.flip(self.sprites["arrow_l"], True, False)
         self.bg = backdrop()
         self.open_display()
-        self.init_joysticks()
+        self.joysticks = {}         # instance_id -> Joystick
+        self.axis_latch = {}        # (instance_id, axis) -> -1/0/+1
+        self.open_joysticks()
         self.clock = pygame.time.Clock()
         self._apps_mtime = None
         self.apps = scan_apps()
@@ -403,17 +412,58 @@ class Launcher:
         pygame.transform.scale(self.canvas, self.frame.get_size(), self.frame)
         pygame.display.flip()
 
-    def init_joysticks(self):
-        # ホットプラグ対応: 抜き差しで古いハンドルが残ると SDL が再挿入した
-        # デバイスを open せず、入力イベントが一切来なくなる（起動前から挿しっぱ
-        # なし→抜き差しで無反応になる件）。quit() で全て閉じてから開き直す。
-        pygame.joystick.quit()
+    def open_joysticks(self):
+        """起動時に接続中のパッドを開く。以後の増減はイベントで追従する。
+
+        ここで pygame.joystick.quit() を呼んではいけない。SDL は joystick
+        サブシステムを init するたび、接続中の全デバイスへ JOYDEVICEADDED を
+        積み直すため、「ADDED を受けたら quit()+init()」は自分で自分を呼び続ける
+        無限ループになる（2026-09-18 実機計測: 4 秒間に 46 回再初期化、30fps→6fps）。
+        再初期化のたびに evdev を閉じて開き直すので xpad ドライバの割り込み URB が
+        kill/submit を繰り返し、usb_submit_urb -EPERM → EPIPE でパッドが自ら
+        USB バスから落ちる（dmesg の xpad_irq_in 失敗と 'unable to receive magic
+        message: -32'）。抜き差しのたびに接触不良のように見えていた原因。
+        """
         pygame.joystick.init()
-        self.joysticks = []
+        self.close_joysticks()
         for i in range(pygame.joystick.get_count()):
-            js = pygame.joystick.Joystick(i)
+            self.add_joystick(i)
+
+    def close_joysticks(self):
+        for js in list(self.joysticks.values()):
+            self.quit_joystick(js)
+        self.joysticks = {}
+        self.axis_latch = {}
+
+    @staticmethod
+    def quit_joystick(js):
+        """pygame の Joystick は GC では閉じない（dealloc は SDL_JoystickClose を
+        呼ばない）。明示的に quit() しないと抜いたパッドの fd が残り続ける。"""
+        try:
+            js.quit()
+        except pygame.error:
+            pass
+
+    def add_joystick(self, device_index):
+        """JOYDEVICEADDED: 新しく挿さった 1 台だけを開く。"""
+        try:
+            js = pygame.joystick.Joystick(device_index)
             js.init()
-            self.joysticks.append(js)
+        except pygame.error:
+            return
+        iid = js.get_instance_id()
+        if iid in self.joysticks:
+            self.quit_joystick(js)      # 二重 open の分だけ閉じる（SDL は参照数管理）
+            return
+        self.joysticks[iid] = js
+
+    def remove_joystick(self, instance_id):
+        """JOYDEVICEREMOVED: 抜けた 1 台だけを閉じる（他のパッドは触らない）。"""
+        js = self.joysticks.pop(instance_id, None)
+        if js is not None:
+            self.quit_joystick(js)
+        self.axis_latch = {k: v for k, v in self.axis_latch.items()
+                           if k[0] != instance_id}
 
     def text(self, s, color, x, y, k=1, align="left", font="body", spacing=0):
         surf = self.type.render(s, color, k, font, spacing)
@@ -434,8 +484,10 @@ class Launcher:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 self.running = False
-            elif ev.type in (pygame.JOYDEVICEADDED, pygame.JOYDEVICEREMOVED):
-                self.init_joysticks()
+            elif ev.type == pygame.JOYDEVICEADDED:
+                self.add_joystick(ev.device_index)
+            elif ev.type == pygame.JOYDEVICEREMOVED:
+                self.remove_joystick(ev.instance_id)
             elif ev.type == pygame.KEYDOWN:
                 if ev.key in (pygame.K_UP, pygame.K_LEFT):
                     nav = -1
@@ -451,11 +503,22 @@ class Launcher:
                     nav = -1
                 elif hy == -1 or hx == 1:
                     nav = 1
-            elif ev.type == pygame.JOYAXISMOTION and ev.axis in (0, 1, 3):
-                if ev.value < -AXIS_THRESHOLD:
-                    nav = -1
-                elif ev.value > AXIS_THRESHOLD:
-                    nav = 1
+            elif ev.type == pygame.JOYAXISMOTION and ev.axis in NAV_AXES:
+                # 倒した瞬間だけ 1 回動かす。閾値ぎりぎりで揺れるスティックだと
+                # 素通しでは 1 イベントごとにカーソルが走ってしまう（接触不良に見える）。
+                key = (getattr(ev, "instance_id", 0), ev.axis)
+                prev = self.axis_latch.get(key, 0)
+                if ev.value <= -AXIS_THRESHOLD:
+                    now = -1
+                elif ev.value >= AXIS_THRESHOLD:
+                    now = 1
+                elif abs(ev.value) <= AXIS_RELEASE:
+                    now = 0
+                else:
+                    now = prev          # 閾値と復帰閾値の間では状態を変えない
+                if now and now != prev:
+                    nav = now
+                self.axis_latch[key] = now
             elif ev.type == pygame.JOYBUTTONDOWN:
                 if ev.button == 0:
                     ok = True
@@ -483,7 +546,7 @@ class Launcher:
             home.close()
             pygame.display.init()
             self.open_display()
-            pygame.event.clear()    # ゲーム中に溜まったパッド入力を捨てる
+            pygame.event.clear(CONTROL_EVENTS)  # ゲーム中に溜まったパッド入力を捨てる
             self.apps = scan_apps()
 
     def confirm_quit(self, proc, home):
@@ -496,7 +559,7 @@ class Launcher:
         self.use_canvas(DIALOG_W, DIALOG_H)
         self.type = Type()
         pygame.mouse.set_visible(False)
-        pygame.event.clear()
+        pygame.event.clear(CONTROL_EVENTS)
         options = ["ゲームを終了する", "ゲームに戻る"]
         choice = 0
         decided = None

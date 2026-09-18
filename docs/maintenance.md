@@ -48,6 +48,20 @@ ssh -t player@10.89.0.1 'sudo install -m 755 /tmp/ucon-launcher.py /usr/lib/unit
   `PAMName=login` で全プロセスが logind の session scope へ移り service の cgroup が空になるのが原因。
   `unitycon-launcher.service` の `ExecStop` で xinit ごと TERM する。詳細は unit ファイルのコメント）。
   ゲーム実行中に再起動した場合、ランチャーは SIGTERM を受けてゲームを止めてから終了する（取り残さない）。
+- **ランチャーのパッド再走査で `pygame.joystick.quit()` を呼んではいけない**。SDL は joystick サブシステムを
+  init するたび、接続中の全デバイスへ `JOYDEVICEADDED` を積み直す。そのため「ADDED を受けたら quit()+init()」は
+  自分で自分を呼び続ける無限ループになる（2026-09-18 実機計測: 4 秒間に 46 回再初期化、30fps→6fps）。
+  再初期化のたびに evdev を閉じて開き直すので xpad ドライバの割り込み URB が kill/submit を繰り返し、
+  `xpad_irq_in - usb_submit_urb failed with result -1` → `unable to receive magic message: -32` →
+  `USB disconnect` でパッドが自分で USB バスから落ちる（実測: 挿してから 28 秒・43 秒で毎回）。
+  接触不良に見えるが原因はソフト側。`refresh_joysticks()` / `add_joystick()` / `remove_joystick()` の
+  3 つで「触る 1 台だけ」を開閉すること。
+- **抜いたパッドは `Joystick.quit()` で明示的に閉じる**。pygame の `Joystick` は GC では閉じない
+  （dealloc が `SDL_JoystickClose` を呼ばない）ので、`JOYDEVICEREMOVED` で辞書から外すだけだと
+  evdev の fd が残り続け、抜き差しのたびに 1 本ずつ溜まる（2026-09-18 実機で確認）。
+- ゲームから戻る時に `pygame.event.clear()` を引数なしで呼ばない。`JOYDEVICEADDED`/`REMOVED` まで
+  消えるため、ゲーム中に抜き差しされたパッドを取りこぼしてランチャーへ戻った時点で無反応になる。
+  操作系（`CONTROL_EVENTS`）だけを指定して捨てること。
 - `unitycon-gadget.service` は再起動しない（USB リンク自体が切れる。反映は Pi の再起動で）。
 - **退避やカセット導入の最中にランチャーを再起動しない**。退避コマンドはランチャーのサービスの一部として動いているため一緒に止まる
   （SD 側のアプリは最後まで消さない作りなので失われはしない）。
