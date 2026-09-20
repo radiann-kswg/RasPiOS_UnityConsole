@@ -102,6 +102,11 @@ python tools/send-app.py COM5 MyGame.zip        # Linux なら /dev/ttyACM0
 アナログスティックは倒した瞬間だけ 1 回動く（閾値 0.6 / 復帰 0.35 のヒステリシス）ので、
 摩耗して値が揺れるスティックでもカーソルが走らない。
 
+ゲーム側（Unity）のパッド入力: X にウィンドウマネージャが無くゲームの窓がフォーカスを得ないため、
+`ucon-run-app` が `SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1` を付けて起動する（Unity の Linux プレイヤーはパッドを SDL で読み、
+既定ではフォーカスの無い窓のパッド入力を捨てる）。Input System を使うゲームはさらに
+`InputSystem.settings.backgroundBehavior = IgnoreFocus` にしておく（NTsWallpaperEngine で実機確認済み）。
+
 ## 対応ハードウェアと検証状況
 
 | 対象 | 状況 |
@@ -109,7 +114,7 @@ python tools/send-app.py COM5 MyGame.zip        # Linux なら /dev/ttyACM0
 | Raspberry Pi 4B | 実機で確認済み（起動、USB カセット導入、ゲーム実行、退避と再導入、ランチャー表示。HDMI 1280×720、Type-C を PC に接続して給電） |
 | Raspberry Pi 5 | 設定は入っているが実機未検証（box64 のため 4K ページカーネルを使う） |
 | ホームボタン基板 | 設計・発注データのみ（実基板は未製作。GPIO を模擬して動作確認済み） |
-| ゲームパッド | ELECOM JC-U4013S（XInput モード / xpad ドライバ）を実機で確認済み（抜き差しの再認識、ランチャー操作、ゲーム起動） |
+| ゲームパッド | ELECOM JC-U4013S（XInput モード / xpad ドライバ）を実機で確認済み（抜き差しの再認識、ランチャー操作、ゲーム起動）。ゲーム内のパッド操作は uinput の仮想 Xbox 360 パッドで確認（NTsWallpaperEngine） |
 
 box64 によるエミュレーションなので CPU 負荷は高く、重い 3D ゲームは厳しい。
 USB メモリは「ゲームカセット」として使うため、USB メディアからの起動とは併用しない。
