@@ -166,19 +166,59 @@ def free_space_text():
         return ""
 
 
-def bt_scan():
+def bluetoothctl(lines, timeout=120, lead=2.5, gap=0.8):
+    """1つの bluetoothctl セッションへコマンドを順に送り、出力を返す。
+    数値を混ぜるとその秒数だけ待つ（スキャンやペアリング応答の待ち用）。
+
+    2点それぞれ実機で確認した罠がある:
+      ・コマンドごとにプロセスを分けるとペアリング用エージェントが毎回消えるので、
+        暗証番号を出さない機器(スピーカー等の Just Works)が認証できない
+      ・起動直後は "Waiting to connect to bluetoothd..." の状態で、stdin へ一括で
+        流し込むと接続前に読み捨てられ "Failed to register agent object" になる
+    """
+    try:
+        proc = subprocess.Popen(["bluetoothctl"], stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except OSError as e:
+        return f"bluetoothctl を実行できません: {e}"
+    try:
+        time.sleep(lead)                       # bluetoothd への接続を待つ
+        for ln in lines:
+            if isinstance(ln, (int, float)):
+                time.sleep(ln)
+                continue
+            proc.stdin.write(ln + "\n")
+            proc.stdin.flush()
+            time.sleep(gap)
+        proc.stdin.write("quit\n")
+        proc.stdin.flush()
+        return proc.communicate(timeout=timeout)[0]
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        proc.kill()
+        try:
+            return (proc.communicate(timeout=5)[0] or "") + f"\n(中断: {e})"
+        except subprocess.SubprocessError:
+            return f"(中断: {e})"
+
+
+def bt_scan(seconds=20):
     """周辺のBluetoothデバイスをスキャンして (mac, name) のリストを返す。"""
-    subprocess.run(["bluetoothctl", "power", "on"],
-                   capture_output=True, timeout=10)
-    subprocess.run(["bluetoothctl", "--timeout", "12", "scan", "on"],
-                   capture_output=True, timeout=30)
-    result = subprocess.run(["bluetoothctl", "devices"],
-                            capture_output=True, text=True, timeout=10)
-    devices = []
-    for line in result.stdout.splitlines():
-        parts = line.split(maxsplit=2)
-        if len(parts) == 3 and parts[0] == "Device":
-            devices.append((parts[1], parts[2]))
+    out = bluetoothctl(["power on", "agent on", "default-agent",
+                        "scan on", float(seconds), "scan off", "devices"],
+                       timeout=seconds + 60)
+    devices, seen = [], set()
+    for line in out.splitlines():
+        # 行頭に [NEW] / [CHG] などが付くことがあるので "Device" の位置から読む
+        toks = line.split()
+        if "Device" not in toks:
+            continue
+        i = toks.index("Device")
+        if len(toks) < i + 3:
+            continue
+        mac, name = toks[i + 1], " ".join(toks[i + 2:])
+        if mac.count(":") == 5 and mac not in seen:
+            seen.add(mac)
+            devices.append((mac, name))
     return devices
 
 
@@ -239,11 +279,16 @@ def bt_pair(mac):
     """ペアリング→信頼→接続。オーディオ機器なら PipeWire に生えたシンクを既定の出力へ回す。
     生えなければ入力機器(パッド等)なので出力はそのまま。"""
     before = audio_sink_ids()
-    for cmd in (["pair", mac], ["trust", mac], ["connect", mac]):
-        r = subprocess.run(["bluetoothctl"] + cmd,
-                           capture_output=True, text=True, timeout=45)
-        if r.returncode != 0 and cmd[0] != "connect":
-            return False, (r.stdout + r.stderr).strip().splitlines()[-1:]
+    # エージェントを保ったまま pair→trust→connect を1セッションで通す
+    out = bluetoothctl(["power on", "agent on", "default-agent",
+                        f"pair {mac}", 8.0,          # 応答待ち
+                        f"trust {mac}", f"connect {mac}", 5.0], timeout=150)
+    ok = ("Pairing successful" in out or "Connection successful" in out
+          or "AlreadyExists" in out or "already" in out.lower())
+    if not ok:
+        why = [l.strip() for l in out.splitlines()
+               if "Failed to" in l or "org.bluez.Error" in l or "not available" in l]
+        return False, (why[-1:] or ["機器をペアリングモードにしてから、もう一度お試しください"])
     # A2DP のシンクは接続後に少し遅れて生える
     for _ in range(20):
         time.sleep(0.5)
