@@ -17,6 +17,7 @@ libpulse0
 pipewire
 pipewire-alsa
 pipewire-pulse
+libspa-0.2-bluetooth
 wireplumber
 alsa-utils
 bluez

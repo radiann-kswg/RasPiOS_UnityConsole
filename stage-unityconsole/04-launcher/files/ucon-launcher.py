@@ -182,12 +182,80 @@ def bt_scan():
     return devices
 
 
+SINK = "@DEFAULT_AUDIO_SINK@"
+
+
+def volume_percent():
+    """既定シンクの音量[%]。取れなければ None。"""
+    try:
+        r = subprocess.run(["wpctl", "get-volume", SINK],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for tok in r.stdout.split():          # "Volume: 0.40" / "Volume: 0.40 [MUTED]"
+        try:
+            return round(float(tok) * 100)
+        except ValueError:
+            continue
+    return None
+
+
+def volume_step(delta_percent):
+    """既定シンクの音量を上下する。1.0(100%)で頭打ち。戻り値は変更後の%。"""
+    arg = f"{abs(delta_percent)}%{'+' if delta_percent > 0 else '-'}"
+    try:
+        subprocess.run(["wpctl", "set-volume", "-l", "1.0", SINK, arg],
+                       capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return volume_percent()
+
+
+def audio_sink_ids():
+    """wpctl の Audio > Sinks に並んでいるノードIDの集合。取れなければ空。"""
+    try:
+        r = subprocess.run(["wpctl", "status"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    ids, in_audio, in_sinks = set(), False, False
+    for line in r.stdout.splitlines():
+        body = line.lstrip("│├└─ \t")
+        if body.startswith("Audio"):
+            in_audio = True
+        elif body.startswith("Video") or body.startswith("Settings"):
+            in_audio = False
+        elif in_audio and body.startswith("Sinks:"):
+            in_sinks = True
+        elif in_audio and body.endswith(":") and not body.startswith("Sinks:"):
+            in_sinks = False
+        elif in_sinks:
+            head = body.lstrip("* ").split(".", 1)
+            if len(head) == 2 and head[0].strip().isdigit():
+                ids.add(head[0].strip())
+    return ids
+
+
 def bt_pair(mac):
+    """ペアリング→信頼→接続。オーディオ機器なら PipeWire に生えたシンクを既定の出力へ回す。
+    生えなければ入力機器(パッド等)なので出力はそのまま。"""
+    before = audio_sink_ids()
     for cmd in (["pair", mac], ["trust", mac], ["connect", mac]):
         r = subprocess.run(["bluetoothctl"] + cmd,
                            capture_output=True, text=True, timeout=45)
         if r.returncode != 0 and cmd[0] != "connect":
             return False, (r.stdout + r.stderr).strip().splitlines()[-1:]
+    # A2DP のシンクは接続後に少し遅れて生える
+    for _ in range(20):
+        time.sleep(0.5)
+        new_sinks = audio_sink_ids() - before
+        if new_sinks:
+            sink = sorted(new_sinks)[0]
+            try:
+                subprocess.run(["wpctl", "set-default", sink],
+                               capture_output=True, timeout=10)
+                return True, ["音の出力先をこの機器に切り替えました"]
+            except (OSError, subprocess.SubprocessError):
+                return True, ["接続しましたが出力先を切り替えられませんでした"]
     return True, []
 
 
@@ -384,6 +452,7 @@ class Launcher:
         self.menu_cursor = 0
         self.bt_devices = []
         self.bt_cursor = 0
+        self.bt_volume = None
         self.message = ""
         self.running = True
 
@@ -808,14 +877,22 @@ class Launcher:
         self.draw_panel(self.monogram(app["name"]), app["name"], rows, self.menu_cursor, icon=app.get("icon"),
                         hints=[("↑↓", "選択"), ("A", "決定"), ("B", "戻る")])
 
-    def draw_bt(self):
+    # 音量2行ぶんだけ BT 一覧の手前にある
+    BT_FIXED_ROWS = 2
+
+    def bt_rows(self):
+        v = self.bt_volume
+        bar = "" if v is None else "  " + "|" * (v // 10) + "." * (10 - v // 10) + f" {v}%"
+        rows = [(f"音量を下げる{bar}", FG), ("音量を上げる", FG)]
         if self.bt_devices:
-            rows = [(f"{name}  {mac}", FG) for mac, name in self.bt_devices]
-            cursor = self.bt_cursor
+            rows += [(f"{name}  {mac}", FG) for mac, name in self.bt_devices]
         else:
-            rows, cursor = [("決定でスキャン開始（約12秒）", FG)], 0
-        self.draw_panel("", "Bluetooth ペアリング", rows, cursor, bt=True,
-                        hints=[("↑↓", "選択"), ("A", "スキャン/ペアリング"), ("B", "戻る")])
+            rows += [("Bluetooth機器を探す（約12秒）", FG)]
+        return rows
+
+    def draw_bt(self):
+        self.draw_panel("", "サウンドと Bluetooth", self.bt_rows(), self.bt_cursor, bt=True,
+                        hints=[("↑↓", "選択"), ("A", "決定"), ("B", "戻る")])
 
     def draw_dialog(self, options, choice):
         c = self.canvas
@@ -859,6 +936,7 @@ class Launcher:
                 self.mode = "bt"
                 self.bt_devices = []
                 self.bt_cursor = 0
+                self.bt_volume = volume_percent()   # 毎フレーム wpctl を起動しないための控え
 
     def update_menu(self, nav, ok, back):
         if back:
@@ -884,9 +962,13 @@ class Launcher:
         if back:
             self.mode = "list"
             return
-        if nav and self.bt_devices:
-            self.bt_cursor = (self.bt_cursor + nav) % len(self.bt_devices)
-        if ok:
+        rows = self.BT_FIXED_ROWS + max(1, len(self.bt_devices))
+        if nav:
+            self.bt_cursor = (self.bt_cursor + nav) % rows
+        if ok and self.bt_cursor < self.BT_FIXED_ROWS:
+            self.bt_volume = v = volume_step(-5 if self.bt_cursor == 0 else 5)
+            self.message = "音量を変えられませんでした" if v is None else f"音量 {v}%"
+        elif ok:
             if not self.bt_devices:
                 self.message = "スキャン中..."
                 self.draw()
@@ -899,7 +981,7 @@ class Launcher:
                 except Exception as e:
                     self.message = f"スキャン失敗: {e}"
             else:
-                mac, name = self.bt_devices[self.bt_cursor]
+                mac, name = self.bt_devices[self.bt_cursor - self.BT_FIXED_ROWS]
                 self.message = f"{name} とペアリング中..."
                 self.draw()
                 self.present()
