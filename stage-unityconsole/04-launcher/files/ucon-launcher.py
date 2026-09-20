@@ -137,7 +137,9 @@ def scan_apps():
                 args = [str(a) for a in data.get("args", [])]
             except (OSError, ValueError):
                 pass
-        apps.append({"id": entry, "name": name, "path": path, "args": args})
+        icon = os.path.join(path, "icon.png")   # カセット側が同梱していればタイルに使う
+        apps.append({"id": entry, "name": name, "path": path, "args": args,
+                     "icon": icon if os.path.isfile(icon) else None})
     return apps
 
 
@@ -397,6 +399,7 @@ class Launcher:
         self.use_canvas(LOGICAL_W, LOGICAL_H)
         self.type = Type()
         self.glows = {}
+        self.icons = {}     # (パス, mtime, 一辺) -> 拡縮済み Surface
         self.overlay = pygame.Surface((LOGICAL_W, LOGICAL_H - DRIFT_TOP), pygame.SRCALPHA)
 
     def use_canvas(self, lw, lh):
@@ -670,7 +673,26 @@ class Launcher:
             self.glows[key] = vgradient(size, size, top, bottom)
         return self.glows[key]
 
-    def draw_tile(self, x, y, size, label, selected, bt=False):
+    def tile_icon(self, path, size):
+        """icon.png を一辺 size-8 に収めて返す。読めなければ None（頭文字へ落ちる）。"""
+        if not path:
+            return None
+        try:
+            key = (path, os.path.getmtime(path), size)
+        except OSError:
+            return None
+        if key not in self.icons:
+            inner = size - 8
+            try:
+                img = pygame.image.load(path).convert_alpha()
+                w, h = img.get_size()
+                k = min(inner / w, inner / h)
+                self.icons[key] = pygame.transform.smoothscale(img, (max(1, round(w * k)), max(1, round(h * k))))
+            except pygame.error:
+                self.icons[key] = None
+        return self.icons[key]
+
+    def draw_tile(self, x, y, size, label, selected, bt=False, icon=None):
         c = self.canvas
         if selected:
             level = round(self.pulse() * 7) / 7
@@ -695,8 +717,10 @@ class Launcher:
             gear = scaled(self.sprites["gear_on" if selected else "gear"], k)
             c.blit(gear, gear.get_rect(center=(x + size // 2, y + size // 2)))
         else:
-            k = {72: 2, 92: 3}.get(size, 4)
-            surf = self.type.render(label, WHITE if selected else TILE_INK, k)
+            surf = self.tile_icon(icon, size)
+            if surf is None:
+                k = {72: 2, 92: 3}.get(size, 4)
+                surf = self.type.render(label, WHITE if selected else TILE_INK, k)
             c.blit(surf, surf.get_rect(center=(x + size // 2, y + size // 2)))
 
     def draw_status(self, lines, y, x=None):
@@ -717,8 +741,8 @@ class Launcher:
 
     # --- 画面 -------------------------------------------------------------
     def draw_list(self):
-        items = [(self.monogram(a["name"]), a["name"]) for a in self.apps]
-        items.append(("", "Bluetooth機器のペアリング"))
+        items = [(self.monogram(a["name"]), a["name"], a.get("icon")) for a in self.apps]
+        items.append(("", "Bluetooth機器のペアリング", None))
         n = len(items)
         sel, other, gap = 92, 72, 14
         visible = 1 + (576 - sel) // (other + gap)
@@ -734,7 +758,7 @@ class Launcher:
             is_sel = i == self.cursor
             size = sel if is_sel else other
             y = 95 if is_sel else 101
-            self.draw_tile(x, y, size, items[i][0], is_sel, bt=(i == n - 1))
+            self.draw_tile(x, y, size, items[i][0], is_sel, bt=(i == n - 1), icon=items[i][2])
             if is_sel:
                 self.canvas.blit(self.sprites["pointer"], (x + size // 2 - 4, 194))
             x += size + gap
@@ -758,9 +782,9 @@ class Launcher:
         self.draw_status(lines[:2], 266)
         self.draw_hints([("←→", "選択"), ("A", "決定")])
 
-    def draw_panel(self, tile_label, title, rows, cursor, bt=False, hints=()):
+    def draw_panel(self, tile_label, title, rows, cursor, bt=False, hints=(), icon=None):
         """左に大タイル、右に見出しと選択行。rows: [(文字列, 色)]"""
-        self.draw_tile(48, 98, 128, tile_label, True, bt=bt)
+        self.draw_tile(48, 98, 128, tile_label, True, bt=bt, icon=icon)
         title, k = self.type.fit(title, 382)
         self.text(title, WHITE, 210, 93 if k == 2 else 101, k=k)
         visible = 5
@@ -781,7 +805,7 @@ class Launcher:
     def draw_menu(self):
         app = self.apps[self.cursor]
         rows = [("起動", FG), ("USBメモリへバックアップ(退避)", FG), ("削除", RED), ("戻る", FG)]
-        self.draw_panel(self.monogram(app["name"]), app["name"], rows, self.menu_cursor,
+        self.draw_panel(self.monogram(app["name"]), app["name"], rows, self.menu_cursor, icon=app.get("icon"),
                         hints=[("↑↓", "選択"), ("A", "決定"), ("B", "戻る")])
 
     def draw_bt(self):
