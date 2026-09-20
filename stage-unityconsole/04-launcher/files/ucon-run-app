@@ -19,6 +19,34 @@ chmod +x "${EXE}" 2>/dev/null || true
 
 cd "${APP_DIR}" || { echo "アプリディレクトリへ移動できません: ${APP_DIR}" >&2; exit 1; }
 
+# 再生するゲームは常に1本だけ。別のアプリが残っていたら先に畳んでから起動する。
+# ランチャー経由なら重複は起きないが、SSH や保守作業からの直接起動で二重再生になっていた。
+# ランチャーは終了確認ダイアログ中にゲームを SIGSTOP するため、TERM/KILL に CONT を添える。
+APPS_ROOT="/var/lib/unityconsole/apps"
+RUNNING_RE="^${APPS_ROOT}/.*\\.x86_64"
+
+stop_running_apps() {
+    local sig="$1" pid
+    for pid in $(pgrep -f "${RUNNING_RE}" 2>/dev/null); do
+        [ "${pid}" = "$$" ] && continue
+        # ランチャー起動分は独立セッション＝プロセスグループごと畳む。単発起動はPID単体で。
+        kill -"${sig}" -- "-${pid}" 2>/dev/null || kill -"${sig}" "${pid}" 2>/dev/null || true
+        kill -CONT -- "-${pid}" 2>/dev/null || kill -CONT "${pid}" 2>/dev/null || true
+    done
+}
+
+if pgrep -f "${RUNNING_RE}" >/dev/null 2>&1; then
+    echo "ucon-run-app: 実行中のアプリを終了します（同時再生は1本まで）" >&2
+    stop_running_apps TERM
+    for _ in $(seq 50); do                      # TERM を 5 秒待つ
+        pgrep -f "${RUNNING_RE}" >/dev/null 2>&1 || break
+        sleep 0.1
+    done
+    stop_running_apps KILL
+    sleep 0.5                                   # DRM/X のリースが解放されるのを待つ
+fi
+
+
 # RPi の V3D (Mesa) は素の GL バージョン報告が 3.1 のため、Unity(OpenGLCore) が要求する
 # 3.3 相当へ引き上げる（RasPiOS_NTsWallpaper の run-signage.sh で実証済み。Vulkan アプリには無害）
 export MESA_GL_VERSION_OVERRIDE=3.3
