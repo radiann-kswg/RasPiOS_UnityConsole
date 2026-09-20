@@ -2,4 +2,10 @@
 # UnityConsole Xセッション: 省電力無効化してランチャーを起動
 xset s off
 xset -dpms
+
+# 音は HDMI から出す。PipeWire の既定シンクは bcm2835 Headphones(3.5mmジャック)になりがちで、
+# Unity は既定シンクへ流すため映像だけ HDMI・音はジャックという状態になる（実機で確認）。
+hdmi=$(wpctl status 2>/dev/null | sed -n '/Sinks:/,/Sources:/p' | grep -i hdmi | grep -oE '[0-9]+\.' | head -1 | tr -d '.')
+[ -n "$hdmi" ] && wpctl set-default "$hdmi"
+
 exec /usr/bin/python3 /usr/lib/unityconsole/ucon-launcher.py
