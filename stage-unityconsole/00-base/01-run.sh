@@ -34,6 +34,19 @@ allowed_users=anybody
 needs_root_rights=yes
 EOF
 
+# --- X: Pi 5 対応 — card0 が v3d(描画専用) になり Xorg がプライマリ誤選択で
+#        "Cannot run in framebuffer mode" 即死するため、vc4 を modesetting の
+#        プライマリGPUに固定する (Pi 4 でも vc4 なので無害) ---
+install -d -m 755 "${ROOTFS_DIR}/etc/X11/xorg.conf.d"
+cat > "${ROOTFS_DIR}/etc/X11/xorg.conf.d/99-vc4.conf" << 'EOF'
+Section "OutputClass"
+    Identifier "vc4"
+    MatchDriver "vc4"
+    Driver "modesetting"
+    Option "PrimaryGPU" "true"
+EndSection
+EOF
+
 on_chroot << CHEOF
 # 入力・映像・音声デバイスへのアクセス権
 usermod -aG input,video,render,audio,plugdev "${FIRST_USER_NAME}"
