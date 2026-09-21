@@ -67,7 +67,7 @@ tail -f build.log
 | パス | 内容 |
 | --- | --- |
 | `config` | pi-gen 設定（arm64 / trixie、ホスト名 `unitycon`、初期ユーザー `player`、`ENABLE_CLOUD_INIT=0`、`STAGE_LIST`） |
-| `stage-unityconsole/00-base/` | パッケージ、`config.txt`（dwc2・ホームボタン・Pi 5 の 4K ページカーネル）、ディレクトリ・権限 |
+| `stage-unityconsole/00-base/` | パッケージ、`config.txt`（dwc2・ホームボタン・Pi 5 の 4K ページカーネルとファンカーブ）、ディレクトリ・権限 |
 | `stage-unityconsole/01-box64/` | box64 の導入 |
 | `stage-unityconsole/02-gadget/` | Type-C USB 複合ガジェット（NCM + ACM）、dnsmasq、シリアル受信サービス |
 | `stage-unityconsole/03-cartridge/` | USB カセット自動インストール、退避（バックアップ）CLI、sudoers、USB ポート速度の切替サービス |

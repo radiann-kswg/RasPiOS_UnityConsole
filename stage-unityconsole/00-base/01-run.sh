@@ -13,6 +13,12 @@ dtoverlay=gpio-key,gpio=21,active_low=1,gpio_pull=up,keycode=172,label=HOME
 [pi5]
 # box64(汎用arm64ビルド)は4KBページ前提のため、Pi 5でも4Kページカーネルを使用
 kernel=kernel8.img
+# 冷却ファン(公式FANコネクタ): 標準カーブ(50/60/67.5/75℃, speed 75/125/175/250)では
+# ヒートシンク型ケースが高温になるため、早め・強めに回す (speed は 0-255)
+dtparam=fan_temp0=40000,fan_temp0_hyst=5000,fan_temp0_speed=100
+dtparam=fan_temp1=50000,fan_temp1_hyst=5000,fan_temp1_speed=150
+dtparam=fan_temp2=60000,fan_temp2_hyst=5000,fan_temp2_speed=200
+dtparam=fan_temp3=70000,fan_temp3_hyst=5000,fan_temp3_speed=255
 
 [all]
 EOF
