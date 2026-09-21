@@ -107,6 +107,14 @@ python tools/send-app.py COM5 MyGame.zip        # Linux なら /dev/ttyACM0
 既定ではフォーカスの無い窓のパッド入力を捨てる）。Input System を使うゲームはさらに
 `InputSystem.settings.backgroundBehavior = IgnoreFocus` にしておく（NTsWallpaperEngine で実機確認済み）。
 
+ゲーム側のキーボード入力: WM が無い X では**入力フォーカスが `None` のままでキー入力がどの窓にも配送されない**ため、
+`ucon-run-app` が起動後（2 / 15 / 45 秒）に X の入力フォーカスを `PointerRoot` にする。
+ポインタ下の窓＝全画面のゲームへキーが流れるようになる（2026-09-21 に仮想キーボードで実測。
+設定前はキーが完全に無反応で、`PointerRoot` にした瞬間に届いた）。
+
+なお X のキーボード自動リピート（既定 660ms / 25回毎秒）は「離上＋押下」の連打として届くので、
+ゲーム側で長押しを判定するときは離上を少し様子見すること（NTsWallpaperEngine は 0.15 秒）。
+
 ## 対応ハードウェアと検証状況
 
 | 対象 | 状況 |
@@ -131,7 +139,7 @@ USB メモリは「ゲームカセット」として使うため、USB メディ
 config                     pi-gen 設定（arm64 / trixie / STAGE_LIST）
 build-image.sh             ビルドラッパー（pi-gen の取得 → 独自ステージ同期 → ビルド）
 stage-unityconsole/
-  00-base/                 パッケージ・config.txt・ディレクトリ・権限
+  00-base/                 パッケージ(X/GL/pygame/git 等)・config.txt・ディレクトリ・権限
   01-box64/                box64 の導入
   02-gadget/               Type-C USB ガジェット（NCM + ACM）・dnsmasq・シリアル受信
   03-cartridge/            USB カセット自動インストール・退避 CLI
