@@ -1,0 +1,3 @@
+[submodule "lib/RasPiLib_UnityGpio"]
+	path = lib/RasPiLib_UnityGpio
+	url = https://github.com/radiann-kswg/RasPiLib_UnityGpio.git

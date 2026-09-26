@@ -21,6 +21,7 @@ USB メモリの「ゲームカセット」を挿すだけで SD カードへ自
 | 退避 | SD が一杯になったら、ランチャーからアプリを USB メモリへ移動（挿し直せば再インストール） |
 | 入力 | USB / Bluetooth のゲームパッド・キーボード（ランチャーにペアリング画面あり） |
 | ホームボタン | GPIO に挿す小基板。ゲーム中に短押しで一時停止＋終了確認、長押しで即終了（[設計データ](docs/home-button.md)） |
+| GPIO 拡張（設計中） | ゲームから GPIO・PWM・I2C を使い、LED やサーボ、センサーで拡張ゲームパーツを作れるようにする（[設計](docs/gpio.md)） |
 
 ## 画面
 
@@ -132,6 +133,7 @@ USB メモリは「ゲームカセット」として使うため、USB メディ
 - [docs/build.md](docs/build.md) — イメージのビルド（WSL2 を含む）とステージ構成
 - [docs/maintenance.md](docs/maintenance.md) — USB リンク、ファイルだけの更新、カセットと退避の仕組み、本体内のパス、既知の注意点
 - [docs/home-button.md](docs/home-button.md) — ホームボタン基板と JLCPCB 発注
+- [docs/gpio.md](docs/gpio.md) — GPIO 拡張（設計段階）。本体は MIT のサブモジュール `lib/RasPiLib_UnityGpio/`
 
 ## リポジトリ構成
 
@@ -145,6 +147,7 @@ stage-unityconsole/
   03-cartridge/            USB カセット自動インストール・退避 CLI
   04-launcher/             ランチャー（キオスク X セッション）と同梱フォント
   05-purge-cloud-init/     cloud-init の除去（必ず最後）
+lib/RasPiLib_UnityGpio/    GPIO 拡張の本体（サブモジュール・MIT。設計段階）
 tools/send-app.py          PC 側のアプリ転送ツール（pyserial）
 hardware/home-button/      ホームボタン基板（KiCad 10）と JLCPCB 発注データ
 docs/                      ドキュメントと画面画像
@@ -174,6 +177,8 @@ CC BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0/
   **CC BY-SA 4.0 の対象外**で、作者の独自ライセンス（ソフトウェアへの同梱・再配布・商用利用は可、
   フォント単体の販売は不可など）に従います。要約は [fonts/README.md](stage-unityconsole/04-launcher/files/fonts/README.md)、
   正式な規約は配布サイトを参照してください。
+- **`lib/RasPiLib_UnityGpio/`**（サブモジュール）は別リポジトリ [RasPiLib_UnityGpio](https://github.com/radiann-kswg/RasPiLib_UnityGpio) の内容で、
+  **CC BY-SA 4.0 の対象外**です。**MIT ライセンス**に従います（同ディレクトリの `LICENSE` を参照）。
 - ビルド基盤 [pi-gen](https://github.com/RPi-Distro/pi-gen)（BSD 3-Clause）は**本リポジトリに含まれず**、
   ビルド時に `build-image.sh` が取得します。
 - [box64](https://github.com/ptitSeb/box64)（MIT）は本リポジトリに含まれず、ビルド時に

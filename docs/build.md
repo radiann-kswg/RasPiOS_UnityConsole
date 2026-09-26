@@ -14,7 +14,8 @@
 
 ```bash
 # 1. Linux のファイルシステム上へ clone する（パスに空白を含めない。WSL2 なら /mnt/c 等は不可）
-git clone https://github.com/radiann-kswg/RasPiOS_UnityConsole.git ~/workspaces/RasPiOS_UnityConsole
+git clone --recurse-submodules https://github.com/radiann-kswg/RasPiOS_UnityConsole.git ~/workspaces/RasPiOS_UnityConsole
+# 既に clone 済みなら: git submodule update --init
 cd ~/workspaces/RasPiOS_UnityConsole
 
 # 2. ホスト側の準備（Docker モードでも qemu の binfmt 登録が必要）
