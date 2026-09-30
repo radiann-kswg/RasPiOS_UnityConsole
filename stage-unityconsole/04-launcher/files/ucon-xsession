@@ -3,6 +3,14 @@
 xset s off
 xset -dpms
 
+# 画面解像度: /boot/firmware/unitycon.conf の HDMI_MODE（例 1280x720）。空なら画面の推奨モードのまま。
+# Unity の全画面は画面解像度で描くので、非力な Pi 4 + 1080p 画面ではここで下げる。
+HDMI_MODE=
+# shellcheck disable=SC1091
+[ -r /boot/firmware/unitycon.conf ] && . /boot/firmware/unitycon.conf
+out=$(xrandr | awk '/ connected/{print $1; exit}')
+[ -n "$HDMI_MODE" ] && [ -n "$out" ] && xrandr --output "$out" --mode "$HDMI_MODE"
+
 # 音は HDMI から出す。PipeWire の既定シンクは bcm2835 Headphones(3.5mmジャック)になりがちで、
 # Unity は既定シンクへ流すため映像だけ HDMI・音はジャックという状態になる（実機で確認）。
 hdmi=$(wpctl status 2>/dev/null | sed -n '/Sinks:/,/Sources:/p' | grep -i hdmi | grep -oE '[0-9]+\.' | head -1 | tr -d '.')
