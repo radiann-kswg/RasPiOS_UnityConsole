@@ -13,6 +13,8 @@ SDカードにインストール済みのUnityアプリ一覧をフルスクリ�
     Esc / Bボタン   : 戻る
     ホームボタン    : ゲーム中に短押しで一時停止+終了確認、長押し(2秒)で即終了
 """
+import ctypes
+import ctypes.util
 import glob
 import json
 import math
@@ -23,7 +25,9 @@ import signal
 import struct
 import subprocess
 import sys
+import syslog
 import time
+import traceback
 
 import pygame
 
@@ -97,6 +101,12 @@ EV_KEY = 1
 INPUT_EVENT = struct.Struct("llHHi")    # struct input_event (64bit)
 
 os.environ.setdefault("SDL_VIDEO_CENTERED", "1")    # 確認ダイアログを画面中央へ
+# 全画面の窓がフォーカスを失っても SDL に最小化（＝全画面の解除と画面モードの戻し）をさせない。
+# ゲーム側の ucon-run-app は起動後3分間 X のフォーカスを PointerRoot にし続けるので、その間にランチャーへ戻ると
+# フォーカスを奪われる。2画面ではその瞬間にランチャーが落ちて X セッションごと再起動していた（2026-11-12 Pi 4B 実測）。
+os.environ.setdefault("SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS", "0")
+# フォーカスを失った後もパッド入力を受け取る（既定では SDL が捨てる。ゲーム側と同じ対策）
+os.environ.setdefault("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1")
 
 _shutdown = False
 
@@ -371,6 +381,28 @@ def stop_app(proc):
             pass
 
 
+def warp_pointer_to_window():
+    """ポインタをランチャーの窓の中央（＝1枚目のモニタ）へ動かす。
+
+    X のフォーカスが PointerRoot のとき、キー入力はポインタのある窓へ届く。2画面では X 起動直後のポインタが
+    2枚目にあり、そのままだとランチャーにもゲームの Display 1 にもキーが届かない。
+    pygame.mouse.set_pos は窓がポインタを持っていないと何もしないので Xlib を直接呼ぶ。失敗しても起動は続ける。
+    """
+    try:
+        x = ctypes.CDLL(ctypes.util.find_library("X11"))
+        x.XOpenDisplay.restype = ctypes.c_void_p
+        x.XWarpPointer.argtypes = ([ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong] + [ctypes.c_int] * 2
+                                   + [ctypes.c_uint] * 2 + [ctypes.c_int] * 2)
+        x.XCloseDisplay.argtypes = [ctypes.c_void_p]
+        d = x.XOpenDisplay(None)
+        if d:
+            w, h = pygame.display.get_window_size()
+            x.XWarpPointer(d, 0, pygame.display.get_wm_info()["window"], 0, 0, 0, 0, w // 2, h // 2)
+            x.XCloseDisplay(d)      # 送信待ちの要求もここで流れる
+    except (OSError, KeyError, TypeError, pygame.error):
+        pass
+
+
 def sprite(rows, colors):
     surf = pygame.Surface((len(rows[0]), len(rows)), pygame.SRCALPHA)
     for y, row in enumerate(rows):
@@ -508,7 +540,9 @@ class Launcher:
         if window:
             self.screen = pygame.display.set_mode(tuple(int(v) for v in window.split("x")))
         else:
-            self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+            # display=0: 2画面のとき、指定しないとポインタのある側（X 起動直後は2枚目）に出る（2026-11-12 Pi 4B 実測）
+            self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN, display=0)
+            warp_pointer_to_window()
         pygame.display.set_caption("UnityConsole")
         self.use_canvas(LOGICAL_W, LOGICAL_H)
         self.type = Type()
@@ -595,10 +629,25 @@ class Launcher:
         return rect
 
     # --- 入力 -------------------------------------------------------------
+    def joy_safe(self, call, *args):
+        """pygame のイベント関数（event.get / event.clear）を呼ぶ。
+
+        ゲーム中（＝イベントを処理していない間）にパッドが何度か抜き差しされると、戻った時に pygame 2.6.1 が
+        JOYDEVICEREMOVED の処理で KeyError を出し、それが SystemError「returned a result with an exception set」
+        になって飛んでくる。素通しするとランチャーが落ちて X セッションごと再起動する（Pi 5 で 2026-11-10 に発生、
+        11-12 に Pi 4B で再現）。その回のイベントは失われるので、パッドを開き直して続ける。
+        """
+        try:
+            return call(*args)
+        except SystemError as e:
+            syslog.syslog(f"pygame がパッドの抜き差しで例外を出した。開き直して続行: {e.__cause__!r}")
+            self.open_joysticks()
+            return None
+
     def poll_nav(self):
         """イベントを (nav, ok, back) の高レベル操作へ変換。←↑ = -1 / →↓ = +1"""
         nav, ok, back = 0, False, False
-        for ev in pygame.event.get():
+        for ev in self.joy_safe(pygame.event.get) or ():
             if ev.type == pygame.QUIT:
                 self.running = False
             elif ev.type == pygame.JOYDEVICEADDED:
@@ -656,14 +705,19 @@ class Launcher:
                     stop_app(proc)
                     break
                 press = home.poll(0.2)
+                if press:   # ゲームが「勝手に終わった」のかホームボタンで止めたのかを後から区別できるように残す
+                    syslog.syslog(f"home button {press} press while running {app['id']}")
                 if press == "long" or (
                         press == "short" and self.confirm_quit(proc, home)):
                     stop_app(proc)
+            # 終わり方を journal に残す（journalctl -t ucon-launcher.py）。0=ゲームが自分で終了、
+            # -15/-9=ランチャーが止めた（ホームボタン・サービス停止）、それ以外の負の値＝クラッシュのシグナル番号
+            syslog.syslog(f"{app['id']} exited: {proc.returncode}")
         finally:
             home.close()
             pygame.display.init()
             self.open_display()
-            pygame.event.clear(CONTROL_EVENTS)  # ゲーム中に溜まったパッド入力を捨てる
+            self.joy_safe(pygame.event.clear, CONTROL_EVENTS)   # ゲーム中に溜まったパッド入力を捨てる
             self.apps = scan_apps()
 
     def confirm_quit(self, proc, home):
@@ -672,11 +726,11 @@ class Launcher:
         pygame.display.init()
         info = pygame.display.Info()
         self.screen = pygame.display.set_mode(
-            (info.current_w // 2, info.current_h // 3), pygame.NOFRAME)
+            (info.current_w // 2, info.current_h // 3), pygame.NOFRAME, display=0)
         self.use_canvas(DIALOG_W, DIALOG_H)
         self.type = Type()
         pygame.mouse.set_visible(False)
-        pygame.event.clear(CONTROL_EVENTS)
+        self.joy_safe(pygame.event.clear, CONTROL_EVENTS)
         options = ["ゲームを終了する", "ゲームに戻る"]
         choice = 0
         decided = None
@@ -1073,4 +1127,9 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception:
+        # 標準エラーは tty1 にしか出ず、X の再起動で流れて読めなくなる。落ちた理由を journal に残す
+        syslog.syslog(syslog.LOG_ERR, traceback.format_exc())
+        raise

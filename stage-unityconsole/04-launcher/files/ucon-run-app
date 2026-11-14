@@ -46,6 +46,14 @@ if pgrep -f "${RUNNING_RE}" >/dev/null 2>&1; then
     sleep 0.5                                   # DRM/X のリースが解放されるのを待つ
 fi
 
+# 2画面: 2枚目以降の出力を1枚目の右へ並べる。X の既定は全出力を同じ位置に重ねる複製表示で、X の起動後に
+# 挿した出力は点かない（2026-11-12 Pi 4B 実測）。Unity は起動時にしか画面を数えないので、ゲームを起動する
+# たびにここで並べ直す。Unity の Display 1 が1枚目（解像度は ucon-xsession が決めたまま）、Display 2 が2枚目。
+prev=""
+for out in $(xrandr 2>/dev/null | awk '/ connected/{print $1}'); do
+    [ -n "${prev}" ] && xrandr --output "${out}" --auto --right-of "${prev}"
+    prev="${out}"
+done
 
 # RPi の V3D (Mesa) は素の GL バージョン報告が 3.1 のため、Unity(OpenGLCore) が要求する
 # 3.3 相当へ引き上げる（RasPiOS_NTsWallpaper の run-signage.sh で実証済み。Vulkan アプリには無害）
@@ -61,10 +69,11 @@ export SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1
 # 配送されない（2026-09-21 に NTsWallpaper 機で実測。仮想キーボードのキーが無反応 →
 # PointerRoot にした瞬間に届いた）。ポインタ下の窓＝全画面のゲームへキーが流れるようにする。
 #
-# 同じく WM が無いので、全画面指定（-screen-fullscreen 1）のゲームの窓を画面いっぱいへ広げる役もここで担う。
+# 同じく WM が無いので、全画面指定（-screen-fullscreen 1）のゲームの窓をモニタいっぱいへ広げる役もここで担う。
+# 窓は作られた順に 1枚目・2枚目のモニタへ割り当てる（Unity は Display 2 の窓を Activate で後から作る）。
 # Unity 6.7 (6000.7.0b2) の Linux プレイヤーは全画面要求を WM 任せにし、WM が無いと窓が -screen-width/height
 # の大きさで中央に残る。描画はデスクトップ解像度で行うため、画面には左下だけが映り周囲が黒枠になる
-# （2026-10-04 Pi 5 実測: 1366x768 画面に 960x540+203+114 の窓）。窓を root と同じ大きさへ
+# （2026-10-04 Pi 5 実測: 1366x768 画面に 960x540+203+114 の窓）。窓をモニタと同じ大きさへ
 # XMoveResizeWindow すると Unity が追従し「downscaled viewport」で全面表示になった。6.6 までは無害。
 # 窓の生成（box64 で数十秒）や Unity の取り直しに追従するため、起動後しばらく繰り返す。
 # exec で box64 へ置き換わるので、ゲームの _NET_WM_PID は このシェルの $$ と一致する。
@@ -76,7 +85,7 @@ for a in "$@"; do
 done
 fix_x_window() {
     FIT_PID="${FIT_PID}" python3 - <<'PY' 2>/dev/null || true
-import ctypes, ctypes.util, os
+import ctypes, ctypes.util, os, re, subprocess
 x = ctypes.CDLL(ctypes.util.find_library("X11"))
 c_p, c_ul, c_i, c_u = ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_uint
 x.XOpenDisplay.restype = c_p
@@ -104,12 +113,17 @@ if d:
                                  ctypes.byref(f), ctypes.byref(n), ctypes.byref(b), ctypes.byref(p))
             return ctypes.cast(p, ctypes.POINTER(c_ul))[0] if p.value and n.value else None
         root = x.XDefaultRootWindow(d)
-        _, _, rw, rh = geom(root)
+        # モニタの矩形 (x, y, w, h)。xrandr の行は " 0: +*HDMI-1 1280/597x800/336+0+0  HDMI-1"。読めなければ root 全体
+        # --current: 付けないと xrandr は毎回モニタを検出し直す（3秒おきに EDID を読みに行くことになる）
+        mons = [(int(mx), int(my), int(mw), int(mh)) for mw, mh, mx, my in re.findall(
+            r"(\d+)/\d+x(\d+)/\d+\+(\d+)\+(\d+)",
+            subprocess.run(["xrandr", "--current", "--listactivemonitors"], capture_output=True, text=True).stdout)] or [geom(root)]
         r, pa, ch, n = c_ul(), c_ul(), ctypes.POINTER(c_ul)(), c_u()
         if x.XQueryTree(d, root, ctypes.byref(r), ctypes.byref(pa), ctypes.byref(ch), ctypes.byref(n)):
-            for w in [ch[i] for i in range(n.value)]:
-                if wm_pid(w) == pid and geom(w) != (0, 0, rw, rh):
-                    x.XMoveResizeWindow(d, w, 0, 0, rw, rh)
+            # 窓 ID は作られた順に増える
+            for w, mon in zip(sorted(w for w in (ch[i] for i in range(n.value)) if wm_pid(w) == pid), mons):
+                if geom(w) != mon:
+                    x.XMoveResizeWindow(d, w, *mon)
     x.XSync(d, 0)
 PY
 }

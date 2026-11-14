@@ -125,6 +125,28 @@ SuperSpeed 側ルートハブ（`usb2`）の 4 ポートを sysfs の `usb2-port
 UCON_WINDOW=1280x720 python3 stage-unityconsole/04-launcher/files/ucon-launcher.py
 ```
 
+## ゲームが勝手に終わる・ランチャーが再起動するとき
+
+ランチャーは、ゲームの終わり方・ホームボタンの検出・自分が落ちた理由を journal に残す。
+
+```
+journalctl -t ucon-launcher.py --since "-1 day"
+systemctl show unitycon-launcher -p NRestarts     # 0 以外なら X セッションごと再起動している
+```
+
+| 記録 | 意味 |
+| --- | --- |
+| `home button long press while running <アプリ>` | ホームボタン（GPIO21）が 2 秒押された。この直後の終了はランチャーが止めたもの |
+| `<アプリ> exited: 0` | ゲームが正常終了した。ゲーム内の終了操作か、ランチャーからの SIGTERM に応じた終了（上の行があれば後者） |
+| `<アプリ> exited: -15` / `-9` | SIGTERM / SIGKILL で終了（起動途中のゲームや、5 秒以内に終わらなかったゲームをランチャーが止めた） |
+| `<アプリ> exited: -11` など | ゲームのクラッシュ（シグナル番号） |
+| `pygame がパッドの抜き差しで例外を出した。開き直して続行` | ゲーム中にパッドが抜き差しされた。ランチャーは動き続ける |
+| `Traceback ...` | ランチャーが例外で落ちた（`Restart=always` で X セッションごと再起動する） |
+
+ホームボタンは GPIO ヘッダの 39・40 番ピン（GND と GPIO21。USB 端子側の端）を使う。2026-11-12 に Pi 5 で、
+USB パッドを挿す約 2 秒前から 3 秒間の押下が記録され、長押し扱いでゲームが止められた。USB の抜き差しのときに
+基板やピンへ手が当たっていないかを最初に疑う。
+
 ## 既知の注意点
 
 - Raspberry Pi の GPU（V3D）は OpenGL 3.1 相当を報告する。`ucon-run-app` が Mesa の設定で 3.3 相当に引き上げるため、
