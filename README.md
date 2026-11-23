@@ -117,6 +117,12 @@ python tools/send-app.py COM5 MyGame.zip        # Linux なら /dev/ttyACM0
 なお X のキーボード自動リピート（既定 660ms / 25回毎秒）は「離上＋押下」の連打として届くので、
 ゲーム側で長押しを判定するときは離上を少し様子見すること（NTsWallpaperEngine は 0.15 秒）。
 
+ゲームが落ちたとき: `ucon-run-app` がコアダンプを有効にして起動し、systemd-coredump が
+`/var/lib/systemd/coredump/` へ zstd 圧縮で保存する（合計 4GB まで、2 週間で消える。
+設定は `/etc/systemd/coredump.conf.d/50-unitycon.conf`）。`coredumpctl list` で一覧、
+`coredumpctl debug <PID>` で gdb を開く。box64 上の Unity は自分のログに何も残さず落ちることがあり、
+落ちた場所はコアでしか分からないため（2026-11-23 Pi 4B 実測）。
+
 ## 対応ハードウェアと検証状況
 
 | 対象 | 状況 |

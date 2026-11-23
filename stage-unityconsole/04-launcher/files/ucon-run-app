@@ -134,4 +134,11 @@ export BOX64_DYNAREC_BIGBLOCK=2
 export BOX64_DYNAREC_SAFEFLAGS=1
 export BOX64_LOG=0
 
+# ゲームが SIGSEGV などで落ちたらコアダンプを残す。box64 上の Unity は box64 にも Unity にも記録を残さず
+# 落ちることがある（2026-11-23 Pi 4B 実測: 終了コード -11、BOX64_SHOWSEGV のログにも痕跡なし）ため、
+# 落ちた瞬間のスレッドと命令位置はコアでしか分からない。保存は systemd-coredump（zstd 圧縮、上限は
+# /etc/systemd/coredump.conf.d/50-unitycon.conf）。ランチャーから継ぐ soft 上限は 0 なので hard まで上げる。
+# 確認: coredumpctl list / coredumpctl info <PID> / coredumpctl debug <PID>（gdb）
+ulimit -S -c "$(ulimit -H -c)" 2>/dev/null || true
+
 exec box64 "${EXE}" "$@"

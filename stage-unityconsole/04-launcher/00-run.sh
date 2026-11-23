@@ -5,6 +5,10 @@ install -m 755 files/ucon-launcher.py "${ROOTFS_DIR}/usr/lib/unityconsole/ucon-l
 install -m 755 files/ucon-xsession    "${ROOTFS_DIR}/usr/lib/unityconsole/ucon-xsession"
 install -m 755 files/ucon-run-app     "${ROOTFS_DIR}/usr/local/bin/ucon-run-app"
 
+# ゲームが落ちたときのコアダンプの保存上限（systemd-coredump は 00-base/00-packages で導入）
+install -d -m 755 "${ROOTFS_DIR}/etc/systemd/coredump.conf.d"
+install -m 644 files/50-unitycon-coredump.conf "${ROOTFS_DIR}/etc/systemd/coredump.conf.d/50-unitycon.conf"
+
 # ランチャー用ピクセルフォント（患者長ひっく x0y0pxFreeFont。規約は fonts/README.md）
 install -d -m 755 "${ROOTFS_DIR}/usr/share/fonts/truetype/00ff"
 install -m 644 files/fonts/x12y16pxMaruMonica.ttf files/fonts/x14y24pxHeadUpDaisy.ttf files/fonts/README.md \
